@@ -1,0 +1,80 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: fe_mysql
+    restart: always
+    env_file:
+      - .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "${MYSQL_PORT}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - fe_network
+
+  svfe-api-firmador:
+    image: svfe/svfe-api-firmador:v20260316
+    container_name: svfe-api-firmador
+    restart: always
+    ports:
+      - "8113:8113"
+    environment:
+      SPRING_PROFILES_ACTIVE: nonssl
+    volumes:
+      - ./firmador/certificado:/uploads
+    networks:
+      - fe_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: fe_backend
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "${BACKEND_PORT}:4000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      - mysql
+      - svfe-api-firmador
+    networks:
+      - fe_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: fe_frontend
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "${FRONTEND_PORT}:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - fe_network
+
+volumes:
+  # Volumen exclusivo de esta copia de pruebas. No modifica los puertos ni los nombres de contenedor.
+  mysql_data:
+   # name: ${MYSQL_VOLUME_NAME:-fe_mysql_test_data}
+
+networks:
+  fe_network:
+    driver: bridge

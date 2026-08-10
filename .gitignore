@@ -1,0 +1,16 @@
+.env
+.env.*
+node_modules
+dist
+build
+.DS_Store
+# Credenciales y certificados de firma: solo locales o en variables/volúmenes seguros
+*.crt
+*.pem
+*.key
+*.p12
+firmador/certificado/*
+!firmador/certificado/.gitkeep
+
+# Parches locales/historicos: no forman parte del despliegue
+*.patch
