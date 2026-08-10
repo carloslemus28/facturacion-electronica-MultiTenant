@@ -3,6 +3,7 @@ const { sequelize } = require('../../config/database');
 const Company = require('./company.model');
 const Establishment = require('./establishment.model');
 const companyCredentialsService = require('./company-credentials.service');
+const certificateDiagnosticsService = require('./certificate-diagnostics.service');
 
 const LOGO_MAX_SIZE_MB = Number(process.env.LOGO_MAX_SIZE_MB || 2);
 const LOGO_MAX_SIZE_BYTES = LOGO_MAX_SIZE_MB * 1024 * 1024;
@@ -10,6 +11,8 @@ const LOGO_MAX_SIZE_BYTES = LOGO_MAX_SIZE_MB * 1024 * 1024;
 const DEFAULT_ALLOWED_DOCUMENT_TYPES = ['01', '03'];
 const VALID_DOCUMENT_TYPES = ['01', '03', '05', '11', '14'];
 const VALID_ENVIRONMENTS = ['TEST', 'PRODUCTION'];
+
+const cleanDigits = (value) => String(value || '').replace(/\D/g, '');
 
 const normalizeEmpty = (value) => {
   if (value === undefined || value === null) return null;
@@ -135,7 +138,14 @@ const validateDuplicatedEconomicActivities = (companyData) => {
 
 const validateCompanyData = (data) => {
   if (!normalizeText(data.nit)) {
-    const error = new Error('El NIT de la empresa emisora es obligatorio');
+    const error = new Error('El NIT o DUI de la empresa emisora es obligatorio');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const taxIdentifier = cleanDigits(data.nit);
+  if (![9, 14].includes(taxIdentifier.length)) {
+    const error = new Error('Ingrese un DUI de 9 dígitos o un NIT de 14 dígitos para la empresa emisora');
     error.statusCode = 400;
     throw error;
   }
@@ -330,7 +340,7 @@ const createCompany = async (data) => {
   });
 
   if (existingCompany) {
-    const error = new Error('Ya existe una empresa emisora registrada con ese NIT');
+    const error = new Error('Ya existe una empresa emisora registrada con ese NIT o DUI');
     error.statusCode = 409;
     throw error;
   }
@@ -348,6 +358,15 @@ const createCompany = async (data) => {
   });
 
   return getCompanyById(companyId, { withCredentialStatus: true });
+};
+
+const diagnoseCompanyCertificate = async (id, data = {}) => {
+  const company = await getCompanyById(id);
+
+  return certificateDiagnosticsService.diagnoseCompanyCertificate({
+    company,
+    data
+  });
 };
 
 const updateCompany = async (id, data) => {
@@ -369,5 +388,6 @@ module.exports = {
   getActiveCompany,
   getCompanyById,
   createCompany,
-  updateCompany
+  updateCompany,
+  diagnoseCompanyCertificate
 };

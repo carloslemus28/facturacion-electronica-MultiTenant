@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Building2, ImagePlus, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { Building2, ImagePlus, Loader2, Plus, Save, ShieldCheck, Trash2 } from 'lucide-react';
 
 import {
   createCompanyRequest,
+  diagnoseCompanyCertificateRequest,
   getActiveCompanyRequest,
   updateCompanyRequest
 } from '../api/companies.api';
@@ -90,6 +91,9 @@ function CompanySettingsPage() {
   const [companyId, setCompanyId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [certificateFile, setCertificateFile] = useState(null);
+  const [certificateDiagnostic, setCertificateDiagnostic] = useState(null);
+  const [diagnosingCertificate, setDiagnosingCertificate] = useState(false);
 
   const isEditing = Boolean(companyId);
 
@@ -117,6 +121,8 @@ function CompanySettingsPage() {
   const loadCompany = async () => {
     try {
       setLoading(true);
+      setCertificateFile(null);
+      setCertificateDiagnostic(null);
 
       const data = await getActiveCompanyRequest();
 
@@ -244,6 +250,84 @@ function CompanySettingsPage() {
     }));
   };
 
+  const handleCertificateFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    setCertificateDiagnostic(null);
+
+    if (!file) {
+      setCertificateFile(null);
+      return;
+    }
+
+    if (!/\.crt$/i.test(file.name)) {
+      toast.error('Seleccione el archivo .crt generado para este contribuyente');
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > 1024 * 1024) {
+      toast.error('El certificado supera 1 MB y no puede validarse desde esta pantalla');
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      setCertificateFile({ name: file.name, text });
+      setForm((prev) => ({ ...prev, certificateFileName: file.name }));
+      toast.success('Certificado cargado para diagnóstico');
+    } catch {
+      toast.error('No se pudo leer el certificado seleccionado');
+    }
+  };
+
+  const handleDiagnoseCertificate = async () => {
+    if (!companyId) {
+      toast.error('Guarde primero el contribuyente antes de validar su certificado');
+      return;
+    }
+
+    if (!certificateFile?.text) {
+      toast.error('Seleccione el archivo .crt que está utilizando en el Firmador');
+      return;
+    }
+
+    try {
+      setDiagnosingCertificate(true);
+
+      const payload = {
+        certificateText: certificateFile.text,
+        certificateFileName: certificateFile.name
+      };
+
+      if (form.signerPrivateKeyPassword.trim()) {
+        payload.signerPrivateKeyPassword = form.signerPrivateKeyPassword;
+      }
+
+      const data = await diagnoseCompanyCertificateRequest(companyId, payload);
+      const diagnosis = data.diagnosis;
+      setCertificateDiagnostic(diagnosis);
+
+      if (diagnosis?.recommendedFileName) {
+        setForm((prev) => ({
+          ...prev,
+          certificateFileName: diagnosis.recommendedFileName
+        }));
+      }
+
+      if (diagnosis?.ok) {
+        toast.success('Certificado, NIT/DUI y clave privada validados correctamente');
+      } else {
+        toast.error(diagnosis?.warnings?.[0] || 'El certificado tiene inconsistencias');
+      }
+    } catch (error) {
+      console.error('Error diagnosticando certificado:', error);
+      toast.error(error.response?.data?.message || 'No se pudo validar el certificado');
+    } finally {
+      setDiagnosingCertificate(false);
+    }
+  };
+
   const handleEconomicActivityChange = (activity, activityNumber = 1) => {
     const { codeKey, nameKey } = getEconomicActivityKeys(activityNumber);
 
@@ -356,7 +440,12 @@ function CompanySettingsPage() {
   };
 
   const validateForm = () => {
-    if (!form.nit.trim()) return 'El NIT es obligatorio';
+    if (!form.nit.trim()) return 'El NIT o DUI es obligatorio';
+
+    const taxIdentifier = form.nit.replace(/\D/g, '');
+    if (![9, 14].includes(taxIdentifier.length)) {
+      return 'Ingrese un DUI de 9 dígitos o un NIT de 14 dígitos';
+    }
     if (!form.legalName.trim()) return 'El nombre o razón social es obligatorio';
     if (!form.economicActivityCode.trim()) return 'Seleccione la actividad económica principal';
     if (!form.economicActivityName.trim()) return 'Seleccione la actividad económica principal';
@@ -481,7 +570,9 @@ function CompanySettingsPage() {
 
   const startNewCompany = () => {
     setCompanyId(null);
-    setCredentialStatus({ hasMhPassword: false, hasSignerPrivateKeyPassword: false });
+    setCredentialStatus({ hasMhPassword: false, hasSignerPrivateKeyPassword: false, hasSmtpPassword: false });
+    setCertificateFile(null);
+    setCertificateDiagnostic(null);
     setForm({ ...initialForm });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -619,14 +710,14 @@ function CompanySettingsPage() {
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-gray-700 mb-1">
-                    NIT <span className="text-red-600">*</span>
+                    NIT o DUI del emisor <span className="text-red-600">*</span>
                   </label>
                   <input
                     name="nit"
                     value={form.nit}
                     onChange={handleChange}
                     className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800"
-                    placeholder="06142810231012"
+                    placeholder="067097076 o 06142810231012"
                   />
                 </div>
 
@@ -795,21 +886,71 @@ function CompanySettingsPage() {
 
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm text-gray-700 mb-1">Usuario de Hacienda</label>
-                  <input name="mhUser" value={form.mhUser} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder="NIT/usuario autorizado" />
+                  <label className="block text-sm text-gray-700 mb-1">Usuario / NIT-DUI de Hacienda</label>
+                  <input name="mhUser" value={form.mhUser} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder="NIT/DUI utilizado en los servicios web" />
                 </div>
                 <div>
                   <label className="block text-sm text-gray-700 mb-1">Certificado en volumen</label>
                   <input value={form.certificateFileName || `${form.nit.replace(/\D/g, '') || 'NIT'}.crt`} readOnly className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-gray-100 text-gray-700" />
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-700 mb-1">Contraseña de Hacienda</label>
-                  <input name="mhPassword" type="password" value={form.mhPassword} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder={credentialStatus.hasMhPassword ? 'Configurada · deje vacío para conservar' : 'Ingrese la contraseña'} autoComplete="new-password" />
+                  <label className="block text-sm text-gray-700 mb-1">Clave API de Hacienda</label>
+                  <input name="mhPassword" type="password" value={form.mhPassword} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder={credentialStatus.hasMhPassword ? 'Configurada · deje vacío para conservar' : 'Ingrese la clave API'} autoComplete="new-password" />
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-700 mb-1">Contraseña privada del certificado</label>
-                  <input name="signerPrivateKeyPassword" type="password" value={form.signerPrivateKeyPassword} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder={credentialStatus.hasSignerPrivateKeyPassword ? 'Configurada · deje vacío para conservar' : 'Ingrese la contraseña privada'} autoComplete="new-password" />
+                  <label className="block text-sm text-gray-700 mb-1">Clave privada del certificado (.crt)</label>
+                  <input name="signerPrivateKeyPassword" type="password" value={form.signerPrivateKeyPassword} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder={credentialStatus.hasSignerPrivateKeyPassword ? 'Configurada · deje vacío para conservar' : 'Ingrese la clave privada utilizada al generar el .crt'} autoComplete="new-password" />
                 </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-blue-200 bg-white p-4">
+                <div className="flex items-start gap-3">
+                  <ShieldCheck className="w-5 h-5 text-blue-800 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-semibold text-sm text-gray-900">Diagnóstico del certificado del Firmador</p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      Seleccione el mismo .crt cargado en /uploads. El sistema comprueba el DUI/NIT interno, el nombre esperado del archivo y si la clave privada coincide criptográficamente. El archivo no se almacena.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid md:grid-cols-[1fr_auto] gap-3 items-end">
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Archivo .crt a validar</label>
+                    <input
+                      type="file"
+                      accept=".crt,application/xml,text/xml"
+                      onChange={handleCertificateFileChange}
+                      className="block w-full text-sm border border-gray-300 rounded-xl px-3 py-2 bg-white"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDiagnoseCertificate}
+                    disabled={diagnosingCertificate || !certificateFile}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-blue-800 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {diagnosingCertificate ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                    Validar certificado
+                  </button>
+                </div>
+
+                {certificateDiagnostic && (
+                  <div className={`mt-4 rounded-xl border p-3 text-sm ${certificateDiagnostic.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-950'}`}>
+                    <p className="font-semibold">{certificateDiagnostic.message}</p>
+                    <div className="grid md:grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
+                      <p>Identificador del certificado: <strong>{certificateDiagnostic.certificateIdentifier}</strong> ({certificateDiagnostic.identifierType})</p>
+                      <p>Identificador del contribuyente: <strong>{certificateDiagnostic.companyIdentifier || 'No disponible'}</strong></p>
+                      <p>Archivo esperado: <strong>{certificateDiagnostic.recommendedFileName}</strong></p>
+                      <p>Clave privada coincide: <strong>{certificateDiagnostic.passwordMatches ? 'SÍ' : 'NO'}</strong></p>
+                    </div>
+                    {certificateDiagnostic.warnings?.length > 0 && (
+                      <ul className="list-disc pl-5 mt-2 text-xs space-y-1">
+                        {certificateDiagnostic.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </div>
             </section>
 

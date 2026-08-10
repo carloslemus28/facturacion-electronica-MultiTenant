@@ -38,6 +38,21 @@ const createCompany = async (req, res, next) => {
   }
 };
 
+const diagnoseCompanyCertificate = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const diagnosis = await companiesService.diagnoseCompanyCertificate(id, req.body);
+
+    res.set('Cache-Control', 'no-store');
+    res.status(200).json({
+      ok: true,
+      diagnosis
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const updateCompany = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -57,5 +72,6 @@ module.exports = {
   listCompanies,
   getActiveCompany,
   createCompany,
-  updateCompany
+  updateCompany,
+  diagnoseCompanyCertificate
 };

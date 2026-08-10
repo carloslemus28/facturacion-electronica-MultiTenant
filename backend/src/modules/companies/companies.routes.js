@@ -25,6 +25,12 @@ router.post(
   companiesController.createCompany
 );
 
+router.post(
+  '/:id/certificate-diagnostic',
+  authorize('COMPANIES_MANAGE'),
+  companiesController.diagnoseCompanyCertificate
+);
+
 router.put(
   '/:id',
   authorize('COMPANIES_MANAGE'),

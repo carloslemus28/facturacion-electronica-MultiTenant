@@ -20,6 +20,11 @@ export const updateCompanyRequest = async (id, companyData) => {
   return response.data;
 };
 
+export const diagnoseCompanyCertificateRequest = async (id, payload) => {
+  const response = await api.post(`/companies/${id}/certificate-diagnostic`, payload);
+  return response.data;
+};
+
 export const getEstablishmentsRequest = async (params = {}) => {
   const response = await api.get('/establishments', {
     params
