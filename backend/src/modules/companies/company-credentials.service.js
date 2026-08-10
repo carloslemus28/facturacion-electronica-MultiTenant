@@ -14,6 +14,28 @@ const normalizeText = (value) => {
   return normalized || null;
 };
 
+const normalizePort = (value, fallback = 587) => {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : fallback;
+};
+
+const normalizeBoolean = (value, fallback = false) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  return ['true', '1', 'yes', 'si', 'sí'].includes(String(value).toLowerCase());
+};
+
+const isGlobalSmtpFallbackEnabled = () => {
+  const configured = process.env.SMTP_ALLOW_GLOBAL_FALLBACK;
+
+  if (configured !== undefined) {
+    return normalizeBoolean(configured, false);
+  }
+
+  return String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production';
+};
+
 const getEncryptionKey = ({ required = false } = {}) => {
   const explicitSecret = normalizeText(process.env.TENANT_SECRETS_KEY);
   const isProduction = String(process.env.NODE_ENV || 'development').toLowerCase() === 'production';
@@ -128,6 +150,13 @@ const getCredentialRecord = async (companyId) => {
       'mhPasswordEncrypted',
       'signerPrivateKeyPasswordEncrypted',
       'certificateFileName',
+      'smtpHost',
+      'smtpPort',
+      'smtpSecure',
+      'smtpUser',
+      'smtpPasswordEncrypted',
+      'smtpFromName',
+      'smtpFromEmail',
       'updatedAt'
     ]
   });
@@ -155,7 +184,14 @@ const getPublicCredentialStatus = async (company) => {
     hasSignerPrivateKeyPassword: Boolean(
       record?.signerPrivateKeyPasswordEncrypted ||
       (legacyMatchesCompany && process.env.SIGNER_PRIVATE_KEY_PASSWORD)
-    )
+    ),
+    smtpHost: record?.smtpHost || 'smtp.gmail.com',
+    smtpPort: record?.smtpPort || 587,
+    smtpSecure: Boolean(record?.smtpSecure),
+    smtpUser: record?.smtpUser || null,
+    smtpFromName: record?.smtpFromName || company.commercialName || company.legalName || 'Facturación Electrónica',
+    smtpFromEmail: record?.smtpFromEmail || record?.smtpUser || company.email || null,
+    hasSmtpPassword: Boolean(record?.smtpPasswordEncrypted)
   };
 };
 
@@ -171,8 +207,19 @@ const updateCompanyCredentials = async ({ company, data = {}, transaction = null
   const signerPasswordProvided = data.signerPrivateKeyPassword !== undefined &&
     String(data.signerPrivateKeyPassword || '').trim() !== '';
   const certificateProvided = data.certificateFileName !== undefined;
+  const smtpHostProvided = data.smtpHost !== undefined;
+  const smtpPortProvided = data.smtpPort !== undefined;
+  const smtpSecureProvided = data.smtpSecure !== undefined;
+  const smtpUserProvided = data.smtpUser !== undefined;
+  const smtpPasswordProvided = data.smtpPassword !== undefined && String(data.smtpPassword || '').trim() !== '';
+  const smtpFromNameProvided = data.smtpFromName !== undefined;
+  const smtpFromEmailProvided = data.smtpFromEmail !== undefined;
 
-  if (!mhUserProvided && !mhPasswordProvided && !signerPasswordProvided && !certificateProvided) {
+  if (
+    !mhUserProvided && !mhPasswordProvided && !signerPasswordProvided && !certificateProvided &&
+    !smtpHostProvided && !smtpPortProvided && !smtpSecureProvided && !smtpUserProvided &&
+    !smtpPasswordProvided && !smtpFromNameProvided && !smtpFromEmailProvided
+  ) {
     return getPublicCredentialStatus(company);
   }
 
@@ -194,7 +241,28 @@ const updateCompanyCredentials = async ({ company, data = {}, transaction = null
       : existing?.signerPrivateKeyPasswordEncrypted || null,
     certificateFileName: certificateProvided
       ? normalizeText(data.certificateFileName) || getDefaultCertificateFileName(company.nit)
-      : existing?.certificateFileName || getDefaultCertificateFileName(company.nit)
+      : existing?.certificateFileName || getDefaultCertificateFileName(company.nit),
+    smtpHost: smtpHostProvided
+      ? normalizeText(data.smtpHost) || 'smtp.gmail.com'
+      : existing?.smtpHost || 'smtp.gmail.com',
+    smtpPort: smtpPortProvided
+      ? normalizePort(data.smtpPort, 587)
+      : existing?.smtpPort || 587,
+    smtpSecure: smtpSecureProvided
+      ? normalizeBoolean(data.smtpSecure, false)
+      : Boolean(existing?.smtpSecure),
+    smtpUser: smtpUserProvided
+      ? normalizeText(data.smtpUser)
+      : existing?.smtpUser || null,
+    smtpPasswordEncrypted: smtpPasswordProvided
+      ? encryptSecret(data.smtpPassword)
+      : existing?.smtpPasswordEncrypted || null,
+    smtpFromName: smtpFromNameProvided
+      ? normalizeText(data.smtpFromName)
+      : existing?.smtpFromName || company.commercialName || company.legalName || 'Facturación Electrónica',
+    smtpFromEmail: smtpFromEmailProvided
+      ? normalizeText(data.smtpFromEmail)
+      : existing?.smtpFromEmail || existing?.smtpUser || normalizeText(data.smtpUser) || company.email || null
   };
 
   if (existing) {
@@ -208,7 +276,14 @@ const updateCompanyCredentials = async ({ company, data = {}, transaction = null
     mhUser: payload.mhUser,
     certificateFileName: payload.certificateFileName,
     hasMhPassword: Boolean(payload.mhPasswordEncrypted),
-    hasSignerPrivateKeyPassword: Boolean(payload.signerPrivateKeyPasswordEncrypted)
+    hasSignerPrivateKeyPassword: Boolean(payload.signerPrivateKeyPasswordEncrypted),
+    smtpHost: payload.smtpHost,
+    smtpPort: payload.smtpPort,
+    smtpSecure: Boolean(payload.smtpSecure),
+    smtpUser: payload.smtpUser,
+    smtpFromName: payload.smtpFromName,
+    smtpFromEmail: payload.smtpFromEmail,
+    hasSmtpPassword: Boolean(payload.smtpPasswordEncrypted)
   };
 };
 
@@ -243,7 +318,14 @@ const getRuntimeCompanyCredentials = async (company) => {
       : legacyMatchesCompany
         ? normalizeText(process.env.SIGNER_PRIVATE_KEY_PASSWORD)
         : null,
-    certificateFileName: normalizeText(record?.certificateFileName) || getDefaultCertificateFileName(company.nit)
+    certificateFileName: normalizeText(record?.certificateFileName) || getDefaultCertificateFileName(company.nit),
+    smtpHost: normalizeText(record?.smtpHost),
+    smtpPort: record?.smtpPort ? normalizePort(record.smtpPort, 587) : null,
+    smtpSecure: record?.smtpSecure === null || record?.smtpSecure === undefined ? null : Boolean(record.smtpSecure),
+    smtpUser: normalizeText(record?.smtpUser),
+    smtpPassword: record?.smtpPasswordEncrypted ? decryptSecret(record.smtpPasswordEncrypted) : null,
+    smtpFromName: normalizeText(record?.smtpFromName),
+    smtpFromEmail: normalizeText(record?.smtpFromEmail)
   };
 
   runtimeCache.set(cacheKey, {
@@ -254,11 +336,54 @@ const getRuntimeCompanyCredentials = async (company) => {
   return value;
 };
 
+const getRuntimeCompanySmtpConfig = async (company) => {
+  const credentials = await getRuntimeCompanyCredentials(company);
+  const hasTenantSmtp = Boolean(credentials.smtpUser && credentials.smtpPassword);
+
+  if (hasTenantSmtp) {
+    return {
+      host: credentials.smtpHost || 'smtp.gmail.com',
+      port: credentials.smtpPort || 587,
+      secure: credentials.smtpSecure ?? false,
+      user: credentials.smtpUser,
+      pass: credentials.smtpPassword,
+      fromName: credentials.smtpFromName || company.commercialName || company.legalName || 'Facturación Electrónica',
+      fromEmail: credentials.smtpFromEmail || credentials.smtpUser
+    };
+  }
+
+  if (isGlobalSmtpFallbackEnabled()) {
+    const host = normalizeText(process.env.SMTP_HOST);
+    const user = normalizeText(process.env.SMTP_USER);
+    const pass = normalizeText(process.env.SMTP_PASS);
+    const fromEmail = normalizeText(process.env.SMTP_FROM_EMAIL) || user;
+
+    if (host && user && pass && fromEmail) {
+      return {
+        host,
+        port: normalizePort(process.env.SMTP_PORT, 587),
+        secure: normalizeBoolean(process.env.SMTP_SECURE, false),
+        user,
+        pass,
+        fromName: normalizeText(process.env.SMTP_FROM_NAME) || 'Facturación Electrónica',
+        fromEmail
+      };
+    }
+  }
+
+  const error = new Error(
+    `Configure el correo SMTP y la contraseña de aplicación del contribuyente ${company?.legalName || company?.nit || ''}`.trim()
+  );
+  error.statusCode = 400;
+  throw error;
+};
+
 module.exports = {
   cleanDigits,
   getDefaultCertificateFileName,
   getPublicCredentialStatus,
   updateCompanyCredentials,
   getRuntimeCompanyCredentials,
+  getRuntimeCompanySmtpConfig,
   clearCompanyCredentialCache
 };

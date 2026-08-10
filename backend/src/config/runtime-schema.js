@@ -136,6 +136,26 @@ const ensureRuntimeSchema = async ({ beforeSync = false } = {}) => {
     changes.push('companies.use_logo_in_pdf');
   }
 
+  const companyCredentialColumns = [
+    ['smtp_host', { type: DataTypes.STRING(160), allowNull: true }],
+    ['smtp_port', { type: DataTypes.INTEGER, allowNull: true }],
+    ['smtp_secure', { type: DataTypes.BOOLEAN, allowNull: true }],
+    ['smtp_user', { type: DataTypes.STRING(180), allowNull: true }],
+    ['smtp_password_encrypted', { type: DataTypes.TEXT, allowNull: true }],
+    ['smtp_from_name', { type: DataTypes.STRING(160), allowNull: true }],
+    ['smtp_from_email', { type: DataTypes.STRING(180), allowNull: true }]
+  ];
+
+  for (const [columnName, definition] of companyCredentialColumns) {
+    if (await ensureColumn({
+      tableName: 'company_credentials',
+      columnName,
+      definition
+    })) {
+      changes.push(`company_credentials.${columnName}`);
+    }
+  }
+
   // Las columnas tenant se agregan primero como NULL para que bases existentes
   // puedan arrancar sin bloquear sequelize.sync(). Luego se rellenan por relación.
   for (const [tableName, columnName] of [

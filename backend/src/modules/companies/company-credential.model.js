@@ -36,6 +36,48 @@ const CompanyCredential = sequelize.define('CompanyCredential', {
     type: DataTypes.STRING(120),
     allowNull: true,
     field: 'certificate_file_name'
+  },
+
+  smtpHost: {
+    type: DataTypes.STRING(160),
+    allowNull: true,
+    field: 'smtp_host'
+  },
+
+  smtpPort: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'smtp_port'
+  },
+
+  smtpSecure: {
+    type: DataTypes.BOOLEAN,
+    allowNull: true,
+    field: 'smtp_secure'
+  },
+
+  smtpUser: {
+    type: DataTypes.STRING(180),
+    allowNull: true,
+    field: 'smtp_user'
+  },
+
+  smtpPasswordEncrypted: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    field: 'smtp_password_encrypted'
+  },
+
+  smtpFromName: {
+    type: DataTypes.STRING(160),
+    allowNull: true,
+    field: 'smtp_from_name'
+  },
+
+  smtpFromEmail: {
+    type: DataTypes.STRING(180),
+    allowNull: true,
+    field: 'smtp_from_email'
   }
 }, {
   tableName: 'company_credentials',

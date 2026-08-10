@@ -45,6 +45,13 @@ const initialForm = {
   mhPassword: '',
   signerPrivateKeyPassword: '',
   certificateFileName: '',
+  smtpHost: 'smtp.gmail.com',
+  smtpPort: '587',
+  smtpSecure: false,
+  smtpUser: '',
+  smtpPassword: '',
+  smtpFromName: '',
+  smtpFromEmail: '',
   email: '',
   phone: '',
   departmentCode: '',
@@ -75,7 +82,11 @@ const getEconomicActivityKeys = (activityNumber) => {
 function CompanySettingsPage() {
   const { selectCompany } = useAuth();
   const [form, setForm] = useState(initialForm);
-  const [credentialStatus, setCredentialStatus] = useState({ hasMhPassword: false, hasSignerPrivateKeyPassword: false });
+  const [credentialStatus, setCredentialStatus] = useState({
+    hasMhPassword: false,
+    hasSignerPrivateKeyPassword: false,
+    hasSmtpPassword: false
+  });
   const [companyId, setCompanyId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -137,6 +148,13 @@ function CompanySettingsPage() {
           mhPassword: '',
           signerPrivateKeyPassword: '',
           certificateFileName: company.credentials?.certificateFileName || '',
+          smtpHost: company.credentials?.smtpHost || 'smtp.gmail.com',
+          smtpPort: String(company.credentials?.smtpPort || 587),
+          smtpSecure: Boolean(company.credentials?.smtpSecure),
+          smtpUser: company.credentials?.smtpUser || company.email || '',
+          smtpPassword: '',
+          smtpFromName: company.credentials?.smtpFromName || company.commercialName || company.legalName || '',
+          smtpFromEmail: company.credentials?.smtpFromEmail || company.credentials?.smtpUser || company.email || '',
           email: company.email || '',
           phone: company.phone || '',
           departmentCode: company.departmentCode || '',
@@ -152,11 +170,12 @@ function CompanySettingsPage() {
 
         setCredentialStatus({
           hasMhPassword: Boolean(company.credentials?.hasMhPassword),
-          hasSignerPrivateKeyPassword: Boolean(company.credentials?.hasSignerPrivateKeyPassword)
+          hasSignerPrivateKeyPassword: Boolean(company.credentials?.hasSignerPrivateKeyPassword),
+          hasSmtpPassword: Boolean(company.credentials?.hasSmtpPassword)
         });
       } else {
         setCompanyId(null);
-        setCredentialStatus({ hasMhPassword: false, hasSignerPrivateKeyPassword: false });
+        setCredentialStatus({ hasMhPassword: false, hasSignerPrivateKeyPassword: false, hasSmtpPassword: false });
         setForm(initialForm);
       }
     } catch (error) {
@@ -371,6 +390,14 @@ function CompanySettingsPage() {
       return 'Seleccione al menos un tipo de documento que la empresa podrá emitir';
     }
 
+    if (form.smtpPassword.trim() && !form.smtpUser.trim()) {
+      return 'Ingrese el correo SMTP del contribuyente para guardar la contraseña de aplicación';
+    }
+
+    if (form.smtpUser.trim() && !form.smtpFromEmail.trim()) {
+      return 'Ingrese el correo remitente que aparecerá al enviar las facturas';
+    }
+
     return null;
   };
 
@@ -399,6 +426,14 @@ function CompanySettingsPage() {
       mhPassword: form.mhPassword,
       signerPrivateKeyPassword: form.signerPrivateKeyPassword,
       certificateFileName: form.certificateFileName || `${form.nit.replace(/\D/g, '')}.crt`,
+
+      smtpHost: form.smtpHost.trim() || 'smtp.gmail.com',
+      smtpPort: Number(form.smtpPort || 587),
+      smtpSecure: Boolean(form.smtpSecure),
+      smtpUser: form.smtpUser.trim(),
+      smtpPassword: form.smtpPassword,
+      smtpFromName: form.smtpFromName.trim() || form.commercialName.trim() || form.legalName.trim(),
+      smtpFromEmail: form.smtpFromEmail.trim() || form.smtpUser.trim(),
 
       email: form.email.trim(),
       phone: form.phone.trim(),
@@ -776,6 +811,51 @@ function CompanySettingsPage() {
                   <input name="signerPrivateKeyPassword" type="password" value={form.signerPrivateKeyPassword} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder={credentialStatus.hasSignerPrivateKeyPassword ? 'Configurada · deje vacío para conservar' : 'Ingrese la contraseña privada'} autoComplete="new-password" />
                 </div>
               </div>
+            </section>
+
+            <section className="border border-emerald-100 bg-emerald-50/40 rounded-2xl p-4">
+              <h3 className="font-bold text-lg text-gray-900 mb-1">
+                Correo de envío de facturas
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Cada contribuyente utiliza su propia cuenta SMTP. La contraseña de aplicación se guarda cifrada y nunca se vuelve a mostrar.
+              </p>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Correo SMTP</label>
+                  <input name="smtpUser" type="email" value={form.smtpUser} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder="facturacion@empresa.com" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Contraseña de aplicación</label>
+                  <input name="smtpPassword" type="password" value={form.smtpPassword} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder={credentialStatus.hasSmtpPassword ? 'Configurada · deje vacío para conservar' : 'Ingrese la contraseña de aplicación'} autoComplete="new-password" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Nombre del remitente</label>
+                  <input name="smtpFromName" value={form.smtpFromName} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder={form.commercialName || form.legalName || 'Nombre del contribuyente'} />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Correo remitente</label>
+                  <input name="smtpFromEmail" type="email" value={form.smtpFromEmail} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder="facturacion@empresa.com" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Servidor SMTP</label>
+                  <input name="smtpHost" value={form.smtpHost} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder="smtp.gmail.com" />
+                </div>
+                <div className="grid grid-cols-[1fr_auto] gap-3 items-end">
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Puerto SMTP</label>
+                    <input name="smtpPort" type="number" min="1" max="65535" value={form.smtpPort} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white" placeholder="587" />
+                  </div>
+                  <label className="flex items-center gap-2 pb-3 text-sm text-gray-700">
+                    <input name="smtpSecure" type="checkbox" checked={form.smtpSecure} onChange={handleChange} />
+                    SSL directo
+                  </label>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-3">
+                Para Gmail use normalmente smtp.gmail.com, puerto 587 y deje “SSL directo” desmarcado.
+              </p>
             </section>
 
             <section>

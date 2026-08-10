@@ -4,6 +4,7 @@ const invoicesService = require('../invoices/invoices.service');
 const dtePdfService = require('../dte/dte-pdf.service');
 const dteJsonService = require('../dte/dte-json.service');
 const EmailLog = require('./email-log.model');
+const companyCredentialsService = require('../companies/company-credentials.service');
 
 const sanitizeFileName = (value) => {
   return String(value || 'documento')
@@ -28,44 +29,19 @@ const getSenderUsername = (user) => {
   return user?.username || user?.email || user?.name || null;
 };
 
-const getSmtpConfig = () => {
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || 587);
-  const secure = String(process.env.SMTP_SECURE || 'false').toLowerCase() === 'true';
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const fromName = process.env.SMTP_FROM_NAME || 'Facturación Electrónica';
-  const fromEmail = process.env.SMTP_FROM_EMAIL || user;
-
-  if (!host || !user || !pass || !fromEmail) {
-    const error = new Error(
-      'No se ha configurado SMTP correctamente. Revise SMTP_HOST, SMTP_USER, SMTP_PASS y SMTP_FROM_EMAIL en el archivo .env'
-    );
-    error.statusCode = 500;
-    throw error;
-  }
-
-  return {
-    host,
-    port,
-    secure,
-    auth: {
-      user,
-      pass
-    },
-    fromName,
-    fromEmail
-  };
+const getSmtpConfig = async (company) => {
+  return companyCredentialsService.getRuntimeCompanySmtpConfig(company);
 };
 
-const createTransporter = () => {
-  const config = getSmtpConfig();
-
+const createTransporter = (config) => {
   return nodemailer.createTransport({
     host: config.host,
     port: config.port,
     secure: config.secure,
-    auth: config.auth,
+    auth: {
+      user: config.user,
+      pass: config.pass
+    },
     tls: {
       rejectUnauthorized: false
     }
@@ -370,8 +346,8 @@ const sendInvoiceEmail = async ({ id, user, to, subject, message }) => {
   });
 
   try {
-    const smtpConfig = getSmtpConfig();
-    const transporter = createTransporter();
+    const smtpConfig = await getSmtpConfig(invoice.company);
+    const transporter = createTransporter(smtpConfig);
 
     const mailOptions = {
       from: `"${smtpConfig.fromName}" <${smtpConfig.fromEmail}>`,
