@@ -11,6 +11,7 @@ const Customer = require('../customers/customer.model');
 const Product = require('../products/product.model');
 const Invoice = require('../invoices/invoice.model');
 const InvoiceItem = require('../invoices/invoice-item.model');
+const InvoiceImportArtifact = require('../imports/invoice-import-artifact.model');
 
 const applyUserAssociations = () => {
   User.belongsToMany(Role, {
@@ -312,6 +313,24 @@ const applyUserAssociations = () => {
       allowNull: true
     },
     as: 'customer'
+  });
+
+  Invoice.hasOne(InvoiceImportArtifact, {
+    foreignKey: {
+      name: 'invoiceId',
+      field: 'invoice_id',
+      allowNull: false
+    },
+    as: 'importArtifact'
+  });
+
+  InvoiceImportArtifact.belongsTo(Invoice, {
+    foreignKey: {
+      name: 'invoiceId',
+      field: 'invoice_id',
+      allowNull: false
+    },
+    as: 'invoice'
   });
 
   Invoice.hasMany(InvoiceItem, {

@@ -10,6 +10,7 @@ import ProductsPage from '../pages/ProductsPage';
 import GenerateInvoicePage from '../pages/GenerateInvoicePage';
 import InvoicesPage from '../pages/InvoicesPage';
 import ReportsPage from '../pages/ReportsPage';
+import DataMigrationPage from '../pages/DataMigrationPage';
 
 import ProtectedRoute from './ProtectedRoute';
 import PermissionRoute from './PermissionRoute';
@@ -32,6 +33,7 @@ function AppRoutes() {
           <Route element={<PermissionRoute permission="COMPANIES_MANAGE" />}>
             <Route path="/company" element={<CompanySettingsPage />} />
             <Route path="/control-numbers" element={<ControlNumbersPage />} />
+            <Route path="/data-migration" element={<DataMigrationPage />} />
           </Route>
 
           <Route element={<PermissionRoute permission="USERS_MANAGE" />}>

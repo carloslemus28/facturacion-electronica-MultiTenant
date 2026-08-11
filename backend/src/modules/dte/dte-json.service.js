@@ -1,4 +1,8 @@
+const fs = require('fs');
+
 const invoicesService = require('../invoices/invoices.service');
+const InvoiceImportArtifact = require('../imports/invoice-import-artifact.model');
+const { resolveStoredArtifactPath } = require('../imports/import-storage');
 
 const DOCUMENT_TYPE_CODES = {
   FACTURA: '01',
@@ -1534,6 +1538,30 @@ const getDteJsonByInvoiceId = async ({ id, user, type = 'document' }) => {
   const invoice = await invoicesService.getInvoiceById(id, {
     user
   });
+
+  if (type !== 'invalidation') {
+    const importedArtifact = await InvoiceImportArtifact.findOne({
+      where: {
+        invoiceId: invoice.id,
+        companyId: invoice.companyId
+      }
+    });
+
+    if (importedArtifact?.jsonRelativePath) {
+      const storedJsonPath = resolveStoredArtifactPath(importedArtifact.jsonRelativePath);
+      try {
+        const rawJson = await fs.promises.readFile(storedJsonPath, 'utf8');
+        return JSON.parse(rawJson.replace(/^\uFEFF/, ''));
+      } catch (error) {
+        if (error.code !== 'ENOENT') {
+          const invalid = new Error('El JSON histórico almacenado para este DTE no es válido');
+          invalid.statusCode = 500;
+          throw invalid;
+        }
+        console.warn(`JSON histórico no encontrado para ${invoice.controlNumber}; se regenerará desde la base de datos.`);
+      }
+    }
+  }
 
   if (type === 'invalidation') {
     if (invoice.status !== 'ANULADO') {

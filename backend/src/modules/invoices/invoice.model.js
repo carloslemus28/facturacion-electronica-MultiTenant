@@ -47,7 +47,6 @@ const Invoice = sequelize.define('Invoice', {
   controlNumber: {
     type: DataTypes.STRING(40),
     allowNull: false,
-    unique: true,
     field: 'control_number'
   },
 
@@ -358,6 +357,7 @@ motivoContin: {
   tableName: 'invoices',
   indexes: [
     { fields: ['company_id', 'issued_at'] },
+    { unique: true, fields: ['company_id', 'control_number'], name: 'invoices_tenant_control_number_unique' },
     { fields: ['company_id', 'document_type_code', 'issued_at', 'id'], name: 'invoices_tenant_report_cursor' },
     { fields: ['company_id', 'status', 'issued_at'] },
     { fields: ['document_type_code'] },

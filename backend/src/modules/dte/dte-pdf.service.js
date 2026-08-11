@@ -1,7 +1,10 @@
+const fs = require('fs');
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 
 const invoicesService = require('../invoices/invoices.service');
+const InvoiceImportArtifact = require('../imports/invoice-import-artifact.model');
+const { resolveStoredArtifactPath } = require('../imports/import-storage');
 const { amountToSpanishWords } = require('./dte-json.service');
 const { APP_NAME, APP_COMPANY_NAME, PDF_FOOTER_TEXT } = require('../../config/brand');
 
@@ -984,6 +987,30 @@ const getDtePdfByInvoiceId = async ({ id, user, type = 'document' }) => {
   const invoice = await invoicesService.getInvoiceById(id, {
     user
   });
+
+  if (type !== 'invalidation') {
+    const importedArtifact = await InvoiceImportArtifact.findOne({
+      where: {
+        invoiceId: invoice.id,
+        companyId: invoice.companyId
+      }
+    });
+
+    if (importedArtifact?.pdfRelativePath) {
+      const storedPdfPath = resolveStoredArtifactPath(importedArtifact.pdfRelativePath);
+
+      try {
+        const buffer = await fs.promises.readFile(storedPdfPath);
+        return {
+          buffer,
+          fileName: cleanFileName(`${invoice.controlNumber}.pdf`)
+        };
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        console.warn(`PDF histórico no encontrado para ${invoice.controlNumber}; se generará la representación desde la base de datos.`);
+      }
+    }
+  }
 
   if (type === 'invalidation') {
     if (invoice.status !== 'ANULADO') {

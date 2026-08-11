@@ -1,5 +1,5 @@
 import {
-  Building2, Hash, FilePlus2, Files, FileSpreadsheet, FileText, LayoutDashboard,
+  ArchiveRestore, Building2, Hash, FilePlus2, Files, FileSpreadsheet, FileText, LayoutDashboard,
   LogOut, Menu, PackagePlus, UserCircle, Users, UsersRound
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -72,6 +72,7 @@ function AppLayout() {
                 <>
                   <NavLink to="/company" className={linkClass} onClick={() => setSidebarOpen(false)}><Building2 size={20} />Contribuyentes</NavLink>
                   <NavLink to="/control-numbers" className={linkClass} onClick={() => setSidebarOpen(false)}><Hash size={20} />Correlativos DTE</NavLink>
+                  <NavLink to="/data-migration" className={linkClass} onClick={() => setSidebarOpen(false)}><ArchiveRestore size={20} />Migración de datos</NavLink>
                 </>
               )}
               {canManageUsers && <NavLink to="/technical-users" className={linkClass} onClick={() => setSidebarOpen(false)}><Users size={20} />Usuarios y puntos de venta</NavLink>}

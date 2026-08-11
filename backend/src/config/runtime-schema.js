@@ -80,6 +80,41 @@ const ensureIndex = async ({ tableName, fields, name, unique = false }) => {
   }
 };
 
+const ensureTenantInvoiceControlNumberIndex = async () => {
+  if (!(await tableExists('invoices'))) return [];
+
+  const queryInterface = sequelize.getQueryInterface();
+  const indexes = await queryInterface.showIndex('invoices');
+  const changes = [];
+
+  for (const index of indexes) {
+    const fields = (index.fields || [])
+      .map((field) => field.attribute || field.name || field.column)
+      .filter(Boolean);
+
+    if (
+      index.unique
+      && index.name !== 'PRIMARY'
+      && fields.length === 1
+      && fields[0] === 'control_number'
+    ) {
+      await queryInterface.removeIndex('invoices', index.name);
+      changes.push(`drop-index:${index.name}`);
+    }
+  }
+
+  if (await ensureIndex({
+    tableName: 'invoices',
+    fields: ['company_id', 'control_number'],
+    name: 'invoices_tenant_control_number_unique',
+    unique: true
+  })) {
+    changes.push('index:invoices_tenant_control_number_unique');
+  }
+
+  return changes;
+};
+
 const backfillTenantColumns = async () => {
   if (await tableExists('users') && await tableExists('points_of_sale')) {
     await sequelize.query(`
@@ -178,6 +213,8 @@ const ensureRuntimeSchema = async ({ beforeSync = false } = {}) => {
   await backfillTenantColumns();
 
   if (!beforeSync) {
+    changes.push(...await ensureTenantInvoiceControlNumberIndex());
+
     const indexes = [
       ['users', ['company_id', 'is_active'], 'users_tenant_active_idx'],
       ['customers', ['company_id', 'establishment_id', 'is_active'], 'customers_tenant_est_active_idx'],

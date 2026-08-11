@@ -18,6 +18,7 @@ const dteJsonRoutes = require('./modules/dte/dte-json.routes');
 const dteEventsRoutes = require('./modules/dte/dte-events.routes');
 const dtePdfRoutes = require('./modules/dte/dte-pdf.routes');
 const emailsRoutes = require('./modules/emails/emails.routes');
+const importsRoutes = require('./modules/imports/imports.routes');
 
 const app = express();
 
@@ -63,6 +64,7 @@ app.use('/api/dte-json', dteJsonRoutes);
 app.use('/api/dte-events', dteEventsRoutes);
 app.use('/api/dte-pdf', dtePdfRoutes);
 app.use('/api/emails', emailsRoutes);
+app.use('/api/imports', importsRoutes);
 app.get('/api/health', (req, res) => {
 
   res.set('Cache-Control', 'no-store');

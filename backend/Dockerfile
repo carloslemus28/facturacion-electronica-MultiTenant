@@ -4,6 +4,8 @@ WORKDIR /app
 
 COPY package*.json ./
 
+RUN apk add --no-cache unzip
+
 
 # Desarrollo local: conserva nodemon y el montaje de codigo de Docker Compose.
 FROM base AS development
