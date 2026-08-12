@@ -12,6 +12,53 @@ const locationsPath = path.join(catalogsDir, 'catalogo-de-municipios-y-distritos
 
 const locationsUrl = 'https://ssf.gob.sv/wp-content/uploads/2024/05/catalogo-de-municipios-y-distritos.xlsx';
 
+const municipalityCodesCat013 = {
+  'Ahuachapán Norte': '13',
+  'Ahuachapán Centro': '14',
+  'Ahuachapán Sur': '15',
+  'Santa Ana Norte': '14',
+  'Santa Ana Centro': '15',
+  'Santa Ana Este': '16',
+  'Santa Ana Oeste': '17',
+  'Sonsonate Norte': '17',
+  'Sonsonate Centro': '18',
+  'Sonsonate Este': '19',
+  'Sonsonate Oeste': '20',
+  'Chalatenango Norte': '34',
+  'Chalatenango Centro': '35',
+  'Chalatenango Sur': '36',
+  'La Libertad Norte': '23',
+  'La Libertad Centro': '24',
+  'La Libertad Oeste': '25',
+  'La Libertad Este': '26',
+  'La Libertad Costa': '27',
+  'La Libertad Sur': '28',
+  'San Salvador Norte': '20',
+  'San Salvador Oeste': '21',
+  'San Salvador Este': '22',
+  'San Salvador Centro': '23',
+  'San Salvador Sur': '24',
+  'Cuscatlán Norte': '17',
+  'Cuscatlán Sur': '18',
+  'La Paz Oeste': '23',
+  'La Paz Centro': '24',
+  'La Paz Este': '25',
+  'Cabañas Oeste': '10',
+  'Cabañas Este': '11',
+  'San Vicente Norte': '14',
+  'San Vicente Sur': '15',
+  'Usulután Norte': '24',
+  'Usulután Este': '25',
+  'Usulután Oeste': '26',
+  'San Miguel Norte': '21',
+  'San Miguel Centro': '22',
+  'San Miguel Oeste': '23',
+  'Morazán Norte': '27',
+  'Morazán Sur': '28',
+  'La Unión Norte': '19',
+  'La Unión Sur': '20'
+};
+
 const departmentNames = {
   '01': 'Ahuachapán',
   '02': 'Santa Ana',
@@ -141,10 +188,11 @@ const generateLocations = async () => {
     const oldDistrictCode = String(row[0] || '').trim();
     const districtCode = String(row[1] || '').trim();
     const districtName = String(row[2] || '').trim();
-    const municipalityCode = String(row[3] || '').trim();
+    const territorialMunicipalityCode = String(row[3] || '').trim();
     const municipalityName = String(row[4] || '').trim();
+    const municipalityCode = municipalityCodesCat013[municipalityName] || '';
 
-    if (!districtCode || !districtName || !municipalityCode || !municipalityName) {
+    if (!districtCode || !districtName || !territorialMunicipalityCode || !municipalityName || !municipalityCode) {
       continue;
     }
 
@@ -176,7 +224,7 @@ const generateLocations = async () => {
   }
 
   const departments = Array.from(departmentsMap.values()).sort((a, b) =>
-    a.name.localeCompare(b.name, 'es')
+    a.code.localeCompare(b.code)
   );
 
   writeJsFile('elSalvadorLocations.js', 'elSalvadorLocations', locations);

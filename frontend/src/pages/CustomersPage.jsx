@@ -368,18 +368,16 @@ const handlePhoneCountryChange = (country) => {
       return 'Ingrese un correo electrónico secundario válido';
     }
 
-    if (!form.phoneCountryCode) {
-      return 'Seleccione el país del teléfono';
-    }
+    if (form.phoneNationalNumber.trim()) {
+      if (!form.phoneCountryCode) {
+        return 'Seleccione el país del teléfono';
+      }
 
-    if (!form.phoneNationalNumber.trim()) {
-      return 'Ingrese el teléfono del cliente';
-    }
+      const phoneError = validatePhone();
 
-    const phoneError = validatePhone();
-
-    if (phoneError) {
-      return phoneError;
+      if (phoneError) {
+        return phoneError;
+      }
     }
 
     if (form.documentType !== 'SIN_DOCUMENTO' && !form.documentNumber.trim()) {
@@ -437,10 +435,14 @@ const handlePhoneCountryChange = (country) => {
       tertiaryEconomicActivityName: form.tertiaryEconomicActivityName,
       email: form.email.trim(),
       secondaryEmail: form.secondaryEmail.trim() || null,
-      phoneCountryCode: form.phoneCountryCode,
-      phoneDialCode: form.phoneDialCode,
-      phoneNationalNumber: phoneNumber?.nationalNumber || form.phoneNationalNumber.trim(),
-      phone: phoneNumber?.number || form.phoneNationalNumber.trim(),
+      phoneCountryCode: form.phoneCountryCode || 'SV',
+      phoneDialCode: form.phoneDialCode || '503',
+      phoneNationalNumber: form.phoneNationalNumber.trim()
+        ? (phoneNumber?.nationalNumber || form.phoneNationalNumber.trim())
+        : null,
+      phone: form.phoneNationalNumber.trim()
+        ? (phoneNumber?.number || form.phoneNationalNumber.trim())
+        : null,
       departmentCode: form.departmentCode,
       departmentName: form.departmentName,
       districtName: form.districtName,
@@ -599,7 +601,7 @@ const handlePhoneCountryChange = (country) => {
               Clientes / Receptores
             </h2>
             <p className="text-gray-600 mt-1">
-              Registre clientes para emisión de DTE. Nombre, correo y teléfono son obligatorios.
+              Registre clientes para emisión de DTE. Nombre y correo son obligatorios; el teléfono es opcional.
             </p>
           </div>
         </div>
@@ -688,7 +690,7 @@ const handlePhoneCountryChange = (country) => {
 
             <div>
               <label className="block text-sm text-gray-700 mb-1">
-                Teléfono <span className="text-red-600">*</span>
+                Teléfono <span className="text-gray-400">(opcional)</span>
               </label>
 
               <div className="grid grid-cols-[96px_1fr] gap-3">

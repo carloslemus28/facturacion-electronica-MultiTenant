@@ -1,5 +1,9 @@
 const { DataTypes, QueryTypes } = require('sequelize');
 const { sequelize } = require('./database');
+const {
+  normalizeDepartmentCatalogCode,
+  normalizeMunicipalityCatalogCode
+} = require('../utils/el-salvador-catalogs');
 
 const DUPLICATE_COLUMN_ERRORS = new Set([
   'ER_DUP_FIELDNAME',
@@ -145,6 +149,62 @@ const backfillTenantColumns = async () => {
   }
 };
 
+const backfillElSalvadorCatalogCodes = async () => {
+  const changes = [];
+
+  for (const tableName of ['companies', 'establishments', 'customers']) {
+    if (!(await tableExists(tableName))) continue;
+
+    const rows = await sequelize.query(`
+      SELECT
+        id,
+        department_code AS departmentCode,
+        municipality_code AS municipalityCode,
+        municipality_name AS municipalityName
+      FROM ${tableName}
+    `, { type: QueryTypes.SELECT });
+
+    let updated = 0;
+
+    for (const row of rows) {
+      const departmentCode = normalizeDepartmentCatalogCode(row.departmentCode) || row.departmentCode;
+      const municipalityCode = normalizeMunicipalityCatalogCode({
+        municipalityCode: row.municipalityCode,
+        municipalityName: row.municipalityName
+      }) || row.municipalityCode;
+
+      if (
+        departmentCode === row.departmentCode
+        && municipalityCode === row.municipalityCode
+      ) {
+        continue;
+      }
+
+      await sequelize.query(`
+        UPDATE ${tableName}
+        SET department_code = :departmentCode,
+            municipality_code = :municipalityCode
+        WHERE id = :id
+      `, {
+        replacements: {
+          id: row.id,
+          departmentCode,
+          municipalityCode
+        },
+        type: QueryTypes.UPDATE
+      });
+
+      updated += 1;
+    }
+
+    if (updated > 0) {
+      changes.push(`${tableName}.catalogos-ubicacion:${updated}`);
+    }
+  }
+
+  return changes;
+};
+
 const ensureRuntimeSchema = async ({ beforeSync = false } = {}) => {
   const changes = [];
 
@@ -213,6 +273,7 @@ const ensureRuntimeSchema = async ({ beforeSync = false } = {}) => {
   await backfillTenantColumns();
 
   if (!beforeSync) {
+    changes.push(...await backfillElSalvadorCatalogCodes());
     changes.push(...await ensureTenantInvoiceControlNumberIndex());
 
     const indexes = [

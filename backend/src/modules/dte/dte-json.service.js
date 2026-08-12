@@ -3,6 +3,10 @@ const fs = require('fs');
 const invoicesService = require('../invoices/invoices.service');
 const InvoiceImportArtifact = require('../imports/invoice-import-artifact.model');
 const { resolveStoredArtifactPath } = require('../imports/import-storage');
+const {
+  normalizeDepartmentCatalogCode,
+  normalizeMunicipalityCatalogCode
+} = require('../../utils/el-salvador-catalogs');
 
 const DOCUMENT_TYPE_CODES = {
   FACTURA: '01',
@@ -98,20 +102,6 @@ const getContactEmail = (...values) => {
   }
 
   return null;
-};
-
-const cleanCatalogCode = (value, length = 2) => {
-  const digits = cleanDigits(value);
-
-  if (!digits) return null;
-
-  if (digits.length === length) return digits;
-
-  if (digits.length > length) {
-    return digits.slice(-length);
-  }
-
-  return digits.padStart(length, '0');
 };
 
 const cleanAddressComplement = (value) => {
@@ -588,8 +578,13 @@ const buildIssuer = (invoice) => {
     nombreComercial: cleanString(company.commercialName),
     tipoEstablecimiento: getEstablishmentTypeCode(establishment.establishmentType || company.establishmentType),
     direccion: {
-      departamento: cleanCatalogCode(establishment.departmentCode || company.departmentCode, 2),
-      municipio: cleanCatalogCode(establishment.municipalityCode || company.municipalityCode, 2),
+      departamento: normalizeDepartmentCatalogCode(
+        establishment.departmentCode || company.departmentCode
+      ),
+      municipio: normalizeMunicipalityCatalogCode({
+        municipalityCode: establishment.municipalityCode || company.municipalityCode,
+        municipalityName: establishment.municipalityName || company.municipalityName
+      }),
       complemento: cleanAddressComplement(establishment.addressComplement || company.addressComplement)
     },
     telefono: cleanPhone(company.phone),
@@ -724,8 +719,11 @@ const buildConsumerFinalReceiver = (customer, company = {}) => {
     codActividad: cleanString(customer.economicActivityCode),
     descActividad: cleanString(customer.economicActivityName),
     direccion: {
-      departamento: cleanCatalogCode(customer.departmentCode, 2),
-      municipio: cleanCatalogCode(customer.municipalityCode, 2),
+      departamento: normalizeDepartmentCatalogCode(customer.departmentCode),
+      municipio: normalizeMunicipalityCatalogCode({
+        municipalityCode: customer.municipalityCode,
+        municipalityName: customer.municipalityName
+      }),
       complemento: cleanAddressComplement(customer.addressComplement)
     },
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
@@ -746,8 +744,11 @@ const buildTaxpayerReceiver = (customer, company = {}) => {
     descActividad: cleanString(customer.economicActivityName),
     nombreComercial: cleanString(customer.commercialName || customer.name),
     direccion: {
-      departamento: cleanCatalogCode(customer.departmentCode, 2),
-      municipio: cleanCatalogCode(customer.municipalityCode, 2),
+      departamento: normalizeDepartmentCatalogCode(customer.departmentCode),
+      municipio: normalizeMunicipalityCatalogCode({
+        municipalityCode: customer.municipalityCode,
+        municipalityName: customer.municipalityName
+      }),
       complemento: cleanAddressComplement(customer.addressComplement)
     },
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
@@ -796,8 +797,11 @@ const buildExcludedSubject = (customer, company = {}) => {
     codActividad: cleanString(customer.economicActivityCode),
     descActividad: cleanString(customer.economicActivityName),
     direccion: {
-      departamento: cleanCatalogCode(customer.departmentCode, 2),
-      municipio: cleanCatalogCode(customer.municipalityCode, 2),
+      departamento: normalizeDepartmentCatalogCode(customer.departmentCode),
+      municipio: normalizeMunicipalityCatalogCode({
+        municipalityCode: customer.municipalityCode,
+        municipalityName: customer.municipalityName
+      }),
       complemento: cleanAddressComplement(customer.addressComplement)
     },
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),

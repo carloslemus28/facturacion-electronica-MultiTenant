@@ -236,23 +236,34 @@ const inferCustomerType = (data) => {
 };
 
 const validatePhoneData = ({ phoneCountryCode, phoneNationalNumber }) => {
-  if (!phoneCountryCode || !phoneNationalNumber) {
-    const error = new Error('Debe seleccionar país telefónico e ingresar el número de teléfono');
-    error.statusCode = 400;
-    throw error;
-  }
+  const normalizedCountryCode = normalizeText(phoneCountryCode) || 'SV';
+  const normalizedNationalNumber = normalizeText(phoneNationalNumber);
 
   let dialCode = '';
 
   try {
-    dialCode = getCountryCallingCode(phoneCountryCode);
+    dialCode = getCountryCallingCode(normalizedCountryCode);
   } catch (error) {
     const customError = new Error('Código de país telefónico no válido');
     customError.statusCode = 400;
     throw customError;
   }
 
-  const phoneNumber = parsePhoneNumberFromString(phoneNationalNumber, phoneCountryCode);
+  // El teléfono del cliente es opcional. Si Hacienda requiere teléfono para
+  // el DTE, dte-json.service usa como respaldo el teléfono del contribuyente.
+  if (!normalizedNationalNumber) {
+    return {
+      phoneCountryCode: normalizedCountryCode,
+      phoneDialCode: dialCode,
+      phoneNationalNumber: null,
+      phone: null
+    };
+  }
+
+  const phoneNumber = parsePhoneNumberFromString(
+    normalizedNationalNumber,
+    normalizedCountryCode
+  );
 
   if (!phoneNumber || !phoneNumber.isValid()) {
     const error = new Error('El número de teléfono no corresponde al formato del país seleccionado');
@@ -261,7 +272,7 @@ const validatePhoneData = ({ phoneCountryCode, phoneNationalNumber }) => {
   }
 
   return {
-    phoneCountryCode,
+    phoneCountryCode: normalizedCountryCode,
     phoneDialCode: dialCode,
     phoneNationalNumber: phoneNumber.nationalNumber,
     phone: phoneNumber.number
@@ -299,12 +310,6 @@ const validateCustomerData = (data) => {
 
   if (data.secondaryEmail && !validateEmail(String(data.secondaryEmail).trim())) {
     const error = new Error('Ingrese un correo electrónico secundario válido');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!data.phoneNationalNumber || !data.phoneNationalNumber.trim()) {
-    const error = new Error('El teléfono del cliente es obligatorio');
     error.statusCode = 400;
     throw error;
   }

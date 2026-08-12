@@ -12,6 +12,10 @@ const Establishment = require('../companies/establishment.model');
 const PointOfSale = require('../companies/point-of-sale.model');
 const Customer = require('../customers/customer.model');
 const Product = require('../products/product.model');
+const {
+  normalizeDepartmentCatalogCode,
+  normalizeMunicipalityCatalogCode
+} = require('../../utils/el-salvador-catalogs');
 const User = require('../users/user.model');
 const Invoice = require('../invoices/invoice.model');
 const InvoiceItem = require('../invoices/invoice-item.model');
@@ -232,10 +236,13 @@ const buildCustomerPayloadFromCsv = ({ companyId, establishmentId, row }) => ({
   phoneCountryCode: clean(row.phoneCountryCode),
   phoneDialCode: clean(row.phoneDialCode),
   phoneNationalNumber: clean(row.phoneNationalNumber),
-  departmentCode: clean(row.departmentCode),
+  departmentCode: normalizeDepartmentCatalogCode(row.departmentCode),
   departmentName: clean(row.departmentName),
   districtName: clean(row.districtName),
-  municipalityCode: clean(row.municipalityCode),
+  municipalityCode: normalizeMunicipalityCatalogCode({
+    municipalityCode: row.municipalityCode,
+    municipalityName: row.municipalityName
+  }),
   municipalityName: clean(row.municipalityName),
   addressComplement: clean(row.addressComplement),
   countryCode: clean(row.countryCode),
@@ -419,8 +426,10 @@ const findOrCreateReceiverCustomer = async ({ companyId, establishmentId, docume
 
   if (customer) return customer;
 
-  const departmentCode = clean(receiver?.direccion?.departamento);
-  const districtCode = clean(receiver?.direccion?.municipio);
+  const departmentCode = normalizeDepartmentCatalogCode(receiver?.direccion?.departamento);
+  const municipalityCode = normalizeMunicipalityCatalogCode({
+    municipalityCode: receiver?.direccion?.municipio
+  });
 
   return Customer.create({
     companyId,
@@ -435,7 +444,7 @@ const findOrCreateReceiverCustomer = async ({ companyId, establishmentId, docume
     email: normalizeEmail(receiver.correo),
     phone: clean(receiver.telefono),
     departmentCode,
-    municipalityCode: departmentCode && districtCode ? `${departmentCode}${districtCode}`.slice(0, 4) : null,
+    municipalityCode,
     addressComplement: clean(receiver?.direccion?.complemento),
     countryCode: clean(receiver.codPais) || '503',
     isActive: true

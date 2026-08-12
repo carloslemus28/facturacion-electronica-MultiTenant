@@ -8,6 +8,8 @@ const { resolveStoredArtifactPath } = require('../imports/import-storage');
 const { amountToSpanishWords } = require('./dte-json.service');
 const { APP_NAME, APP_COMPANY_NAME, PDF_FOOTER_TEXT } = require('../../config/brand');
 
+const PUBLIC_DTE_QUERY_URL = 'https://admin.factura.gob.sv/consultaPublica';
+
 const PAGE = {
   margin: 24,
   width: 612,
@@ -253,6 +255,13 @@ const getEnvironmentCode = (environment) => {
 };
 
 const formatPublicQueryDate = (value) => {
+  // Si ya recibimos la fecha DTE en formato YYYY-MM-DD, la conservamos tal
+  // cual para evitar desplazamientos de día por conversiones de zona horaria.
+  if (typeof value === 'string') {
+    const dateOnly = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    if (dateOnly) return dateOnly[1];
+  }
+
   const date = value ? new Date(value) : new Date();
   const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
 
@@ -279,7 +288,7 @@ const buildPublicQueryUrl = ({ invoice, generationCode, issuedAt }) => {
     fechaEmi: formatPublicQueryDate(issuedAt || invoice.issuedAt)
   });
 
-  return `https://admin.factura.gob.sv/consultaPublica?${params.toString()}`;
+  return `${PUBLIC_DTE_QUERY_URL}?${params.toString()}`;
 };
 
 const getModelName = () => 'PREVIO';
