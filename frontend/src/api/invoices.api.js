@@ -38,6 +38,11 @@ export const transmitInvoiceRequest = async (id) => {
   return response.data;
 };
 
+export const synchronizeHistoricalInvoiceRequest = async (id) => {
+  const response = await api.patch(`/invoices/${id}/synchronize-hacienda`);
+  return response.data;
+};
+
 export const invalidateInvoiceRequest = async (id, reason) => {
   const response = await api.patch(`/invoices/${id}/invalidate`, {
     reason

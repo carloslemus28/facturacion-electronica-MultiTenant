@@ -35,8 +35,11 @@ import {
   getInvoicesRequest,
   invalidateInvoiceRequest,
   sendInvoiceEmailRequest,
+  synchronizeHistoricalInvoiceRequest,
   transmitInvoiceRequest
 } from '../api/invoices.api';
+
+import { useAuth } from '../context/AuthContext';
 
 const statusStyles = {
   BORRADOR: 'bg-gray-50 text-gray-700 border-gray-200',
@@ -114,6 +117,8 @@ const downloadBlob = (blob, fileName) => {
 };
 
 function InvoicesPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.roles?.includes('ADMIN');
   const [invoices, setInvoices] = useState([]);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
 
@@ -544,6 +549,46 @@ const getDocumentTypeOrder = (documentTypeCode) => {
       toast.error(message);
     } finally {
       setPdfProcessingId(null);
+    }
+  };
+
+  const handleSynchronizeHistoricalInvoice = async (invoice) => {
+    if (!isAdmin) {
+      toast.error('Solo el Administrador puede sincronizar DTE históricos');
+      return;
+    }
+
+    if (!invoice?.isHistoricalImport) {
+      toast.error('Esta acción aplica únicamente a documentos históricos importados');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Se consultará en Hacienda el DTE ${invoice.controlNumber}. ` +
+      'No se firmará ni retransmitirá el documento. Si Hacienda confirma que ya fue procesado, ' +
+      'se recuperará el sello y cambiará a ACEPTADO. ¿Desea continuar?'
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setProcessingId(invoice.id);
+
+      const data = await synchronizeHistoricalInvoiceRequest(invoice.id);
+      toast.success(data.message || 'DTE sincronizado con Hacienda');
+
+      await loadInvoices();
+      await refreshSelectedInvoice(invoice.id);
+    } catch (error) {
+      console.error('Error sincronizando DTE histórico:', error);
+      const message = error.response?.data?.message ||
+        'Hacienda no confirmó el DTE como aceptado';
+      toast.error(message);
+
+      await loadInvoices();
+      await refreshSelectedInvoice(invoice.id);
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -1068,7 +1113,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
           {groupTitle('Gestión')}
 
           <div className="space-y-2">
-            {invoice.status === 'GENERADO' && (
+            {invoice.status === 'GENERADO' && !invoice.isHistoricalImport && (
               <button
                 type="button"
                 onClick={() => handleTransmit(invoice)}
@@ -1078,6 +1123,26 @@ const renderEmailLogAttachments = (attachmentsJson) => {
                 {isProcessing ? <Loader2 className="animate-spin" size={17} /> : <Send size={17} />}
                 Enviar a Hacienda
               </button>
+            )}
+
+            {isAdmin && invoice.isHistoricalImport && invoice.status !== 'ANULADO' && !(
+              invoice.status === 'ACEPTADO' && invoice.receptionSeal
+            ) && (
+              <button
+                type="button"
+                onClick={() => handleSynchronizeHistoricalInvoice(invoice)}
+                disabled={isProcessing}
+                className={`${buttonBase} bg-blue-700 text-white hover:bg-blue-800`}
+              >
+                {isProcessing ? <Loader2 className="animate-spin" size={17} /> : <RefreshCcw size={17} />}
+                Sincronizar con Hacienda
+              </button>
+            )}
+
+            {invoice.status === 'GENERADO' && invoice.isHistoricalImport && !isAdmin && (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-3 text-sm text-amber-900 text-center">
+                DTE histórico pendiente de sincronización por el Administrador.
+              </div>
             )}
 
             {invoice.status === 'ACEPTADO' && (
@@ -2322,9 +2387,13 @@ const renderEmailLogAttachments = (attachmentsJson) => {
 
                         {invoice.status === 'GENERADO' && invoice.validationStatus !== 'ERROR' && (
                           <div className="mt-3 bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-2 text-xs text-yellow-900">
-                            <p className="font-semibold">Pendiente de transmisión</p>
+                            <p className="font-semibold">
+                              {invoice.isHistoricalImport ? 'Histórico pendiente de sincronización' : 'Pendiente de transmisión'}
+                            </p>
                             <p>
-                              Este DTE está generado, pero aún no ha sido transmitido a Hacienda.
+                              {invoice.isHistoricalImport
+                                ? 'Este DTE fue importado desde otro sistema. No debe retransmitirse; el Administrador debe sincronizarlo con Hacienda.'
+                                : 'Este DTE está generado, pero aún no ha sido transmitido a Hacienda.'}
                             </p>
                           </div>
                         )}

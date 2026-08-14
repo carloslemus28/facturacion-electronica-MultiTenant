@@ -5,6 +5,30 @@ const getTimeoutMs = () => {
   return Number.isFinite(value) && value > 0 ? value : 30000;
 };
 
+const deriveConsultationUrl = (receptionUrl) => {
+  if (!receptionUrl) return null;
+
+  try {
+    const url = new URL(receptionUrl);
+    const normalizedPath = url.pathname.replace(/\/+$/, '');
+
+    if (/\/fesv\/recepciondte$/i.test(normalizedPath)) {
+      url.pathname = normalizedPath.replace(
+        /\/fesv\/recepciondte$/i,
+        '/fesv/recepcion/consultadte/'
+      );
+    } else {
+      url.pathname = '/fesv/recepcion/consultadte/';
+    }
+
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
 const getTransmissionConfig = (company) => {
   const environment = String(company?.environment || 'TEST').toUpperCase() === 'PRODUCTION'
     ? 'MH_PRODUCTION'
@@ -15,6 +39,7 @@ const getTransmissionConfig = (company) => {
   const invalidationUrl = envValue('INVALIDACION_DTE_URL', 'MH_INVALIDACION_DTE_URL');
   const eventReceptionUrl = envValue('RECEPCION_EVENTO_URL', 'MH_RECEPCION_EVENTO_URL');
   const contingencyUrl = envValue('CONTINGENCIA_DTE_URL', 'MH_CONTINGENCIA_DTE_URL') || process.env.MH_CONTINGENCIA_URL;
+  const consultationUrl = envValue('CONSULTA_DTE_URL', 'MH_CONSULTA_DTE_URL') || deriveConsultationUrl(receptionUrl);
 
   if (!receptionUrl) {
     const error = new Error(`No se ha configurado la URL de recepción de Hacienda para ${company?.environment || 'TEST'}`);
@@ -22,7 +47,7 @@ const getTransmissionConfig = (company) => {
     throw error;
   }
 
-  return { receptionUrl, invalidationUrl, eventReceptionUrl, contingencyUrl };
+  return { receptionUrl, invalidationUrl, eventReceptionUrl, contingencyUrl, consultationUrl };
 };
 
 const parsePossibleJson = (value) => {
@@ -127,6 +152,17 @@ const extractObservations = (responseBody) => {
     nestedBody?.observaciones ||
     body?.observations ||
     nestedBody?.observations ||
+    null;
+};
+
+const extractProcessingDate = (responseBody) => {
+  const body = normalizeResponseBody(responseBody);
+  const nestedBody = getNestedBody(body);
+
+  return body?.fhProcesamiento ||
+    nestedBody?.fhProcesamiento ||
+    body?.fechaProcesamiento ||
+    nestedBody?.fechaProcesamiento ||
     null;
 };
 
@@ -517,6 +553,57 @@ const transmitSignedDte = async ({ invoice, company = invoice?.company, official
   });
 };
 
+const consultDteInHacienda = async ({ invoice, company = invoice?.company }) => {
+  if (!invoice) {
+    const error = new Error('El DTE es obligatorio para consultar su estado en Hacienda');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const generationCode = String(invoice.generationCode || '').trim().toUpperCase();
+  const documentTypeCode = String(invoice.documentTypeCode || '').trim().padStart(2, '0');
+  const issuerNit = String(company?.nit || '').replace(/\D/g, '');
+
+  if (!generationCode || !documentTypeCode || !issuerNit) {
+    const error = new Error('No hay suficiente información para consultar el DTE en Hacienda');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const config = getTransmissionConfig(company);
+
+  if (!config.consultationUrl) {
+    const error = new Error('No fue posible determinar la URL de Consulta DTE de Hacienda');
+    error.statusCode = 500;
+    throw error;
+  }
+
+  const payload = {
+    nitEmisor: issuerNit,
+    tdte: documentTypeCode,
+    codigoGeneracion: generationCode
+  };
+
+  const response = await transmitWithAuthRetry({
+    url: config.consultationUrl,
+    payload,
+    errorPrefix: 'consultar DTE en Hacienda',
+    company
+  });
+
+  const normalized = normalizeTransmissionResult({
+    response,
+    payload,
+    defaultRejectedMessage: 'Hacienda no confirmó el DTE consultado'
+  });
+
+  return {
+    ...normalized,
+    processingDate: extractProcessingDate(response?.body),
+    consultationUrl: config.consultationUrl
+  };
+};
+
 const transmitSignedInvalidation = async ({ invoice, company = invoice?.company, officialInvalidationJson, signedJws }) => {
   if (!invoice) {
     const error = new Error('La factura es obligatoria para transmitir la anulación');
@@ -682,6 +769,7 @@ const transmitSignedContingencyEvent = async ({ event, company, officialEventJso
 
 module.exports = {
   transmitSignedDte,
+  consultDteInHacienda,
   transmitSignedInvalidation,
   transmitSignedEvent,
   transmitSignedContingencyEvent

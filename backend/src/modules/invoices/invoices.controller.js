@@ -176,6 +176,25 @@ const transmitReal = async (req, res, next) => {
   }
 };
 
+const synchronizeHistoricalWithHacienda = async (req, res, next) => {
+  try {
+    const invoice = await invoicesService.synchronizeHistoricalInvoiceWithHacienda({
+      id: req.params.id,
+      user: req.user
+    });
+
+    res.status(200).json({
+      ok: true,
+      message: invoice.receptionSeal
+        ? 'Hacienda confirmó el DTE. El documento quedó ACEPTADO y se recuperó el sello de recepción.'
+        : 'El DTE ya se encontraba sincronizado con Hacienda.',
+      invoice
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const invalidateReal = async (req, res, next) => {
   try {
     const invoice = await invoicesService.invalidateInvoiceReal({
@@ -248,5 +267,6 @@ module.exports = {
   getDashboardSummary,
   listAvailableDocumentsForCreditNote,
   transmitReal,
+  synchronizeHistoricalWithHacienda,
   invalidateReal
 };

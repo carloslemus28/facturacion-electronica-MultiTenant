@@ -1,7 +1,7 @@
 const express = require('express');
 
 const invoicesController = require('./invoices.controller');
-const { authenticate, authorize } = require('../../middlewares/auth.middleware');
+const { authenticate, authorize, requireAdmin } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
@@ -45,6 +45,14 @@ router.patch(
   authenticate,
   authorize('INVOICES_TRANSMIT'),
   invoicesController.transmitReal
+);
+
+router.patch(
+  '/:id/synchronize-hacienda',
+  authenticate,
+  requireAdmin,
+  authorize('INVOICES_VIEW'),
+  invoicesController.synchronizeHistoricalWithHacienda
 );
 
 router.patch(

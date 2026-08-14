@@ -17,6 +17,7 @@ const dteTransmissionService = require('../dte/dte-transmission.service');
 const controlNumbersService = require('../dte/control-numbers.service');
 const invalidationDeadlineService = require('../dte/dte-invalidation-deadline.service');
 const DteEvent = require('../dte/dte-event.model');
+const InvoiceImportArtifact = require('../imports/invoice-import-artifact.model');
 
 const DEFAULT_ALLOWED_DOCUMENT_TYPES = ['01', '03'];
 
@@ -1474,6 +1475,59 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
   });
 };
 
+const attachHistoricalImportFlagsToInvoices = async (invoices) => {
+  const invoiceList = Array.isArray(invoices) ? invoices : [invoices];
+  const invoiceIds = invoiceList
+    .filter(Boolean)
+    .map((invoice) => Number(invoice.id))
+    .filter(Number.isInteger);
+
+  if (invoiceIds.length === 0) return invoices;
+
+  const artifacts = await InvoiceImportArtifact.findAll({
+    attributes: ['invoiceId'],
+    where: {
+      invoiceId: {
+        [Op.in]: invoiceIds
+      }
+    }
+  });
+
+  const importedInvoiceIds = new Set(
+    artifacts.map((artifact) => Number(artifact.invoiceId))
+  );
+
+  for (const invoice of invoiceList) {
+    invoice.setDataValue(
+      'isHistoricalImport',
+      importedInvoiceIds.has(Number(invoice.id))
+    );
+  }
+
+  return invoices;
+};
+
+const parseHaciendaProcessingDate = (value) => {
+  if (!value) return null;
+
+  const text = String(value).trim();
+  const match = text.match(
+    /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})[:.](\d{2})$/
+  );
+
+  if (match) {
+    const [, day, month, year, hour, minute, second] = match;
+    const parsed = new Date(
+      `${year}-${month}-${day}T${hour}:${minute}:${second}-06:00`
+    );
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 const attachReturnEventsToInvoices = async (invoices) => {
   const invoiceList = Array.isArray(invoices) ? invoices : [invoices];
   const invoiceIds = invoiceList
@@ -1575,6 +1629,7 @@ const listInvoices = async ({ user, startDate, endDate }) => {
   });
 
   await attachReturnEventsToInvoices(invoices);
+  await attachHistoricalImportFlagsToInvoices(invoices);
 
   return invoices;
 };
@@ -1625,6 +1680,8 @@ const getInvoiceById = async (id, options = {}) => {
   if (currentUser) {
     await validateInvoiceVisibility({ invoice, user: currentUser });
   }
+
+  await attachHistoricalImportFlagsToInvoices(invoice);
 
   return invoice;
 };
@@ -1799,6 +1856,22 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
     invoice,
     user: currentUser
   });
+
+  const historicalImport = await InvoiceImportArtifact.findOne({
+    attributes: ['id'],
+    where: {
+      companyId: invoice.companyId,
+      invoiceId: invoice.id
+    }
+  });
+
+  if (historicalImport) {
+    const error = new Error(
+      'Este DTE fue importado desde otro sistema. No debe retransmitirse; el Administrador debe usar Sincronizar con Hacienda para recuperar su estado y sello de recepción.'
+    );
+    error.statusCode = 409;
+    throw error;
+  }
 
   if (!['GENERADO', 'FIRMADO', 'RECHAZADO'].includes(invoice.status)) {
     const error = new Error('Solo se pueden transmitir documentos en estado GENERADO, FIRMADO o RECHAZADO');
@@ -2001,6 +2074,121 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
   }
 };
 
+const synchronizeHistoricalInvoiceWithHacienda = async ({ id, user }) => {
+  const currentUser = await resolveUserContext(user);
+
+  if (!isAdminUser(currentUser)) {
+    const error = new Error('Solo el Administrador puede sincronizar DTE históricos con Hacienda');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (!currentUser.company) {
+    const error = new Error('Seleccione el contribuyente al que pertenece el DTE');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const invoice = await Invoice.findOne({
+    where: {
+      id,
+      companyId: currentUser.company.id
+    },
+    include: [
+      {
+        model: Company,
+        as: 'company'
+      },
+      buildPointOfSaleInclude(),
+      {
+        model: User,
+        as: 'user',
+        attributes: ['id', 'username', 'firstName', 'lastName', 'email']
+      },
+      {
+        model: Customer,
+        as: 'customer'
+      },
+      {
+        model: InvoiceItem,
+        as: 'items',
+        include: [
+          {
+            model: Product,
+            as: 'product'
+          }
+        ]
+      }
+    ]
+  });
+
+  await validateInvoiceVisibility({ invoice, user: currentUser });
+
+  const historicalImport = await InvoiceImportArtifact.findOne({
+    attributes: ['id', 'importedAt', 'sourceJsonName'],
+    where: {
+      companyId: currentUser.company.id,
+      invoiceId: invoice.id
+    }
+  });
+
+  if (!historicalImport) {
+    const error = new Error('La sincronización manual está habilitada únicamente para DTE históricos importados');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (invoice.status === 'ANULADO') {
+    const error = new Error('Un DTE anulado no puede sincronizarse como aceptado');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (invoice.status === 'ACEPTADO' && invoice.receptionSeal) {
+    return getInvoiceById(invoice.id, { user: currentUser });
+  }
+
+  const consultation = await dteTransmissionService.consultDteInHacienda({
+    invoice,
+    company: invoice.company
+  });
+
+  if (!consultation.accepted || !consultation.receptionSeal) {
+    const error = new Error(
+      consultation.rejectionReason ||
+      'Hacienda no confirmó que este DTE esté recibido y procesado. El documento no fue modificado ni retransmitido.'
+    );
+    error.statusCode = consultation.httpStatus && consultation.httpStatus < 500 ? 409 : 502;
+    error.mhResponse = consultation.response || null;
+    throw error;
+  }
+
+  const processedAt = parseHaciendaProcessingDate(consultation.processingDate);
+  const previousMhResponse = invoice.mhResponseJson || null;
+
+  await invoice.update({
+    status: 'ACEPTADO',
+    validationStatus: 'VALIDADO',
+    validationErrorsJson: null,
+    receptionSeal: consultation.receptionSeal,
+    acceptedAt: processedAt || invoice.acceptedAt || null,
+    rejectedAt: null,
+    rejectionReason: null,
+    mhResponseJson: {
+      modo: 'SINCRONIZACION_HISTORICO_CON_HACIENDA',
+      sincronizadoEn: new Date().toISOString(),
+      importArtifactId: historicalImport.id,
+      sourceJsonName: historicalImport.sourceJsonName || null,
+      payload: consultation.payload,
+      response: consultation.response,
+      respuestaAnterior: previousMhResponse
+    },
+    mhObservationsJson: consultation.observations || null
+  });
+
+  return getInvoiceById(invoice.id, { user: currentUser });
+};
+
 const invalidateInvoiceReal = async ({ id, user, reason }) => {
   const currentUser = await resolveUserContext(user);
 
@@ -2173,5 +2361,6 @@ module.exports = {
   getDashboardSummary,
   listAvailableDocumentsForCreditNote,
   transmitInvoiceToHaciendaReal,
+  synchronizeHistoricalInvoiceWithHacienda,
   invalidateInvoiceReal
 };

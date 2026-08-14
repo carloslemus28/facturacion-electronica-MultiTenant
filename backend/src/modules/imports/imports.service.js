@@ -371,10 +371,63 @@ const getAppendixValue = (json, field) => {
   return clean(appendix.find((item) => clean(item?.campo) === field)?.valor);
 };
 
+const getImportedMetadataValue = (json, keys) => {
+  const acceptedKeys = new Set(keys);
+  const queue = [
+    json,
+    json?.respuestaHacienda,
+    json?.mhResponse,
+    json?.response,
+    json?.resultado,
+    json?.metadataSistema,
+    json?.metadata
+  ].filter((value) => value && typeof value === 'object');
+  const visited = new Set();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object' || visited.has(current)) continue;
+    visited.add(current);
+
+    for (const key of acceptedKeys) {
+      const value = clean(current[key]);
+      if (value) return value;
+    }
+
+    for (const nestedKey of ['body', 'response', 'data', 'resultado']) {
+      const nested = current[nestedKey];
+      if (nested && typeof nested === 'object' && !visited.has(nested)) {
+        queue.push(nested);
+      }
+    }
+  }
+
+  return null;
+};
+
+const getImportedReceptionSeal = (json) => {
+  return getAppendixValue(json, 'selloRecepcion') ||
+    getAppendixValue(json, 'selloRecibido') ||
+    getImportedMetadataValue(json, [
+      'selloRecibido',
+      'selloRecepcion',
+      'numeroValidacion',
+      'numValidacion'
+    ]);
+};
+
 const getImportedStatus = (json) => {
   const appendixStatus = String(getAppendixValue(json, 'estadoSistema') || '').toUpperCase();
   if (STATUS_VALUES.has(appendixStatus)) return appendixStatus;
-  if (getAppendixValue(json, 'selloRecepcion')) return 'ACEPTADO';
+
+  const metadataStatus = String(
+    getImportedMetadataValue(json, ['estado', 'status']) || ''
+  ).toUpperCase();
+
+  if (metadataStatus === 'ANULADO') return 'ANULADO';
+  if (getImportedReceptionSeal(json)) return 'ACEPTADO';
+  if (STATUS_VALUES.has(metadataStatus)) return metadataStatus;
+
   return 'GENERADO';
 };
 
@@ -910,7 +963,7 @@ const importDteZip = async ({ companyId, adminUserId, zipPath, sourceFileName })
         const issuedAt = buildIssuedAt(document.json.identificacion);
         const totals = getDteTotals(document.json);
         const related = getRelatedDocument(document.json);
-        const receptionSeal = getAppendixValue(document.json, 'selloRecepcion');
+        const receptionSeal = getImportedReceptionSeal(document.json);
         const invalidationSeal = getAppendixValue(document.json, 'selloAnulacion');
         const invalidatedAt = validDate(getAppendixValue(document.json, 'fechaAnulacion'));
         const invalidationReason = getAppendixValue(document.json, 'motivoAnulacion');
