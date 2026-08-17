@@ -13,7 +13,23 @@ const api = axios.create({
 });
 
 let isRefreshing = false;
+let refreshPromise = null;
 let failedQueue = [];
+
+export const refreshSessionRequest = () => {
+  // El refresh token se rota en cada renovación. Si dos componentes intentan
+  // renovarlo al mismo tiempo, la segunda petición puede usar un token que la
+  // primera acaba de revocar y provocar una falsa "Sesión inválida o expirada".
+  // Compartir una sola promesa evita esa carrera dentro de la aplicación.
+  if (!refreshPromise) {
+    refreshPromise = api.post('/auth/refresh')
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
+};
 
 const processQueue = (error, token = null) => {
   failedQueue.forEach((request) => {
@@ -79,7 +95,7 @@ api.interceptors.response.use(
     isRefreshing = true;
 
     try {
-      const response = await api.post('/auth/refresh');
+      const response = await refreshSessionRequest();
       const newAccessToken = response.data.accessToken;
 
       tokenStore.setAccessToken(newAccessToken);

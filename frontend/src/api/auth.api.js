@@ -1,4 +1,4 @@
-import api from './axios';
+import api, { refreshSessionRequest } from './axios';
 
 export const loginRequest = async (credentials) => {
   const response = await api.post('/auth/login', credentials);
@@ -6,7 +6,7 @@ export const loginRequest = async (credentials) => {
 };
 
 export const refreshRequest = async () => {
-  const response = await api.post('/auth/refresh');
+  const response = await refreshSessionRequest();
   return response.data;
 };
 

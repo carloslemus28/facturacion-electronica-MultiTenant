@@ -40,7 +40,17 @@ const login = async (req, res, next) => {
 
 const refresh = async (req, res, next) => {
   try {
-    const refreshToken = req.signedCookies.refreshToken;
+    const refreshToken = req.signedCookies?.refreshToken;
+
+    // Es normal que el frontend consulte el estado de la sesión al abrir la
+    // aplicación sin que exista todavía una cookie. Respondemos 401 de forma
+    // controlada en vez de generar una excepción y un stack trace innecesario.
+    if (!refreshToken) {
+      return res.status(401).json({
+        ok: false,
+        message: 'No hay una sesión activa'
+      });
+    }
 
     const result = await authService.refresh({
       refreshToken,

@@ -85,9 +85,31 @@ app.use((req, res) => {
 });
 
 app.use((error, req, res, next) => {
-  console.error('Error global:', error);
+  const statusCode = Number(error.statusCode) || 500;
+  const expectedAuthMessages = new Set([
+    'Credenciales inválidas',
+    'Refresh token no proporcionado',
+    'Refresh token inválido o vencido',
+    'Sesión inválida o expirada',
+    'Usuario no disponible'
+  ]);
+  const isExpectedAuthError = statusCode === 401
+    && String(req.originalUrl || '').startsWith('/api/auth/')
+    && expectedAuthMessages.has(error.message);
 
-  res.status(error.statusCode || 500).json({
+  // Los 401 esperados de autenticación forman parte del flujo normal de una
+  // sesión (login incorrecto, cookie ausente o sesión vencida). Evitamos
+  // imprimirlos como "Error global", pero mantenemos intacto el registro
+  // de cualquier otro 4xx/5xx para no ocultar fallos reales del sistema.
+  if (!isExpectedAuthError) {
+    console.error('Error global:', error);
+  } else if (process.env.NODE_ENV === 'development') {
+    console.warn(
+      `[AUTH ${statusCode}] ${req.method} ${req.originalUrl}: ${error.message}`
+    );
+  }
+
+  res.status(statusCode).json({
     ok: false,
     message: error.message || 'Error interno del servidor'
   });

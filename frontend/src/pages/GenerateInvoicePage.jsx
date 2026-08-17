@@ -20,9 +20,9 @@ import {
   getInvoiceByIdRequest,
   transmitInvoiceRequest
 } from '../api/invoices.api';
-import { refreshRequest } from '../api/auth.api';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../api/axios';
+import { useAuth } from '../context/AuthContext';
 
 import SearchableSelect from '../components/SearchableSelect';
 
@@ -208,10 +208,9 @@ const getProductDescription = (product) => {
 };
 
 function GenerateInvoicePage() {
+  const { user: userContext } = useAuth();
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
-
-  const [userContext, setUserContext] = useState(null);
 
   const [documentTypeCode, setDocumentTypeCode] = useState('01');
   const [customerId, setCustomerId] = useState('');
@@ -322,15 +321,13 @@ function GenerateInvoicePage() {
     try {
       setLoading(true);
 
-      const [customersData, productsData, authData] = await Promise.all([
+      const [customersData, productsData] = await Promise.all([
         getCustomersRequest({ isActive: 'true' }),
-        getProductsRequest({ isActive: 'true' }),
-        refreshRequest()
+        getProductsRequest({ isActive: 'true' })
       ]);
 
       setCustomers(customersData.customers || []);
       setProducts(productsData.products || []);
-      setUserContext(authData.user || null);
     } catch (error) {
       console.error('Error cargando datos para DTE:', error);
       toast.error('No se pudieron cargar los datos para generar el DTE');
