@@ -246,6 +246,7 @@ function GenerateInvoicePage() {
   const originalEditProductQuantitiesRef = useRef({});
 
   const usesFuelTaxes = Boolean(userContext?.company?.usesFuelTaxes);
+  const isAdmin = Boolean(userContext?.roles?.includes('ADMIN'));
   const allowFutureInvoiceDates = Boolean(userContext?.company?.allowFutureInvoiceDates);
   const canUseIvaRetention = IVA_RETENTION_DOCUMENT_TYPES.includes(String(documentTypeCode));
 
@@ -1164,11 +1165,13 @@ function GenerateInvoicePage() {
                   onChange={(event) => setIssuedAtDate(event.target.value)}
                   className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white"
                 />
-                <p className={`text-xs mt-1 ${allowFutureInvoiceDates ? 'text-amber-700' : 'text-gray-500'}`}>
-                  {allowFutureInvoiceDates
-                    ? 'Este contribuyente tiene habilitada la facturación con fechas futuras por el Administrador.'
-                    : 'Puede seleccionar una fecha anterior; no se permiten fechas futuras para este contribuyente.'}
-                </p>
+                {(!allowFutureInvoiceDates || isAdmin) && (
+                  <p className={`text-xs mt-1 ${allowFutureInvoiceDates ? 'text-amber-700' : 'text-gray-500'}`}>
+                    {allowFutureInvoiceDates
+                      ? 'Este contribuyente tiene habilitada la facturación con fechas futuras por el Administrador.'
+                      : 'Puede seleccionar una fecha anterior; no se permiten fechas futuras para este contribuyente.'}
+                  </p>
+                )}
               </div>
 
               <SearchableSelect
