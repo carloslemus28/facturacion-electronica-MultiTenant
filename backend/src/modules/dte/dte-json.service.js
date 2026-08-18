@@ -1019,8 +1019,11 @@ const buildConsumerFinalSummary = (invoice) => {
   const subTotal = round2(invoice.subtotal);
   const totalIva = getOfficialTotalIva(invoice);
   const retencion = round2(invoice.retention1);
-  const montoTotalOperacion = round2(subTotal - retencion);
-  const totalPagar = round2(invoice.total || montoTotalOperacion);
+
+  // La retención de IVA no disminuye el monto total de la operación.
+  // Se informa por separado en ivaRete1 y únicamente reduce el total a pagar.
+  const montoTotalOperacion = subTotal;
+  const totalPagar = round2(invoice.total || (montoTotalOperacion - retencion));
 
   return {
     totalNoSuj,
@@ -1060,8 +1063,12 @@ const buildTaxpayerSummary = (invoice) => {
   const ivaPerci1 = 0;
   const ivaRete1 = round2(invoice.retention1);
   const reteRenta = 0;
-  const montoTotalOperacion = round2(subTotal + totalIva + ivaPerci1 - ivaRete1 - reteRenta);
-  const totalPagar = round2(invoice.total || montoTotalOperacion);
+
+  // En CCF y demás documentos con IVA separado, montoTotalOperacion representa
+  // el valor bruto de la operación antes de retenciones. ivaRete1/reteRenta
+  // reducen únicamente el totalPagar.
+  const montoTotalOperacion = round2(subTotal + totalIva + ivaPerci1);
+  const totalPagar = round2(invoice.total || (montoTotalOperacion - ivaRete1 - reteRenta));
 
   return {
     totalNoSuj,
@@ -1101,7 +1108,10 @@ const buildCreditNoteSummary = (invoice) => {
   const ivaPerci1 = 0;
   const ivaRete1 = round2(invoice.retention1);
   const reteRenta = 0;
-  const montoTotalOperacion = round2(subTotal + totalIva + ivaPerci1 - ivaRete1 - reteRenta);
+
+  // La retención se declara en ivaRete1, pero no reduce el monto total
+  // de la operación de la Nota de Crédito.
+  const montoTotalOperacion = round2(subTotal + totalIva + ivaPerci1);
 
   return {
     totalNoSuj,
