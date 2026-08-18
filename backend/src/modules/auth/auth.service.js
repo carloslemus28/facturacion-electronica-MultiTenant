@@ -146,7 +146,8 @@ const buildCompanyPayload = (company) => {
     municipalityCode: company.municipalityCode,
     municipalityName: company.municipalityName,
     addressComplement: company.addressComplement,
-    allowedDocumentTypes: company.allowedDocumentTypes || DEFAULT_ALLOWED_DOCUMENT_TYPES
+    allowedDocumentTypes: company.allowedDocumentTypes || DEFAULT_ALLOWED_DOCUMENT_TYPES,
+    allowFutureInvoiceDates: Boolean(company.allowFutureInvoiceDates)
   };
 };
 

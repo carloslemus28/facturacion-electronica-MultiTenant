@@ -249,6 +249,11 @@ const buildCompanyData = (data, currentCompany = null) => {
       currentCompany?.usesFuelTaxes ?? false
     ),
 
+    allowFutureInvoiceDates: normalizeBoolean(
+      data.allowFutureInvoiceDates,
+      currentCompany?.allowFutureInvoiceDates ?? false
+    ),
+
     isActive: data.isActive ?? currentCompany?.isActive ?? true
   };
 

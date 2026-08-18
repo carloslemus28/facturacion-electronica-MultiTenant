@@ -245,6 +245,33 @@ const resolveIssuedAtForUpdate = ({ data, invoice }) => {
   return buildIssuedAtFromInput(data.issuedAtDate);
 };
 
+const validateFutureInvoiceDatePolicy = ({ issuedAt, company, action = 'generar' }) => {
+  if (!issuedAt) return;
+
+  const issuedAtDate = issuedAt instanceof Date
+    ? issuedAt
+    : buildIssuedAtFromInput(issuedAt);
+
+  const issuedDateKey = getAppDateKey(issuedAtDate);
+  const todayKey = getAppDateKey();
+
+  if (!issuedDateKey || !todayKey || issuedDateKey <= todayKey) {
+    return;
+  }
+
+  if (company?.allowFutureInvoiceDates) {
+    return;
+  }
+
+  const error = new Error(
+    `Este contribuyente no tiene habilitada la facturación con fechas futuras. `
+    + `No se puede ${action} un DTE con fecha ${issuedDateKey}. `
+    + 'El Administrador puede habilitar esta opción desde la configuración del contribuyente.'
+  );
+  error.statusCode = 403;
+  throw error;
+};
+
 const isConsumerFinalInvoice = (documentTypeCode) => {
   return String(documentTypeCode) === '01';
 };
@@ -662,7 +689,8 @@ const buildCompanyPayloadFromModel = (company) => {
     municipalityCode: company.municipalityCode,
     municipalityName: company.municipalityName,
     addressComplement: company.addressComplement,
-    allowedDocumentTypes: company.allowedDocumentTypes || DEFAULT_ALLOWED_DOCUMENT_TYPES
+    allowedDocumentTypes: company.allowedDocumentTypes || DEFAULT_ALLOWED_DOCUMENT_TYPES,
+    allowFutureInvoiceDates: Boolean(company.allowFutureInvoiceDates)
   };
 };
 
@@ -951,6 +979,12 @@ const createGeneratedInvoice = async ({ data, user }) => {
     throw error;
   }
 
+  validateFutureInvoiceDatePolicy({
+    issuedAt: data.issuedAtDate || data.issuedAt,
+    company: currentUser.company,
+    action: 'generar'
+  });
+
   await validateAllowedDocumentType({
     companyId: currentUser.company.id,
     documentTypeCode: data.documentTypeCode
@@ -1218,6 +1252,12 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
     error.statusCode = 400;
     throw error;
   }
+
+  validateFutureInvoiceDatePolicy({
+    issuedAt: data.issuedAtDate || data.issuedAt || existingInvoice.issuedAt,
+    company: currentUser.company,
+    action: 'guardar'
+  });
 
   await validateAllowedDocumentType({
     companyId: currentUser.company.id,
@@ -1872,6 +1912,12 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
     error.statusCode = 409;
     throw error;
   }
+
+  validateFutureInvoiceDatePolicy({
+    issuedAt: invoice.issuedAt,
+    company: currentUser.company,
+    action: 'transmitir'
+  });
 
   if (!['GENERADO', 'FIRMADO', 'RECHAZADO'].includes(invoice.status)) {
     const error = new Error('Solo se pueden transmitir documentos en estado GENERADO, FIRMADO o RECHAZADO');

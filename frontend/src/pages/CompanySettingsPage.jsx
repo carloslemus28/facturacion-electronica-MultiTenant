@@ -63,6 +63,7 @@ const initialForm = {
   addressComplement: '',
   allowedDocumentTypes: ['01', '03'],
   usesFuelTaxes: false,
+  allowFutureInvoiceDates: false,
   isActive: true
 };
 
@@ -81,7 +82,7 @@ const getEconomicActivityKeys = (activityNumber) => {
 };
 
 function CompanySettingsPage() {
-  const { selectCompany } = useAuth();
+  const { selectCompany, user } = useAuth();
   const [form, setForm] = useState(initialForm);
   const [credentialStatus, setCredentialStatus] = useState({
     hasMhPassword: false,
@@ -171,6 +172,7 @@ function CompanySettingsPage() {
           addressComplement: company.addressComplement || '',
           allowedDocumentTypes: company.allowedDocumentTypes || ['01', '03'],
           usesFuelTaxes: Boolean(company.usesFuelTaxes),
+          allowFutureInvoiceDates: Boolean(company.allowFutureInvoiceDates),
           isActive: company.isActive ?? true
         });
 
@@ -528,7 +530,8 @@ function CompanySettingsPage() {
       phone: form.phone.trim(),
       addressComplement: form.addressComplement.trim(),
       allowedDocumentTypes: form.allowedDocumentTypes || ['01', '03'],
-      usesFuelTaxes: Boolean(form.usesFuelTaxes)
+      usesFuelTaxes: Boolean(form.usesFuelTaxes),
+      allowFutureInvoiceDates: Boolean(form.allowFutureInvoiceDates)
     };
   };
 
@@ -550,6 +553,14 @@ function CompanySettingsPage() {
       if (isEditing) {
         await updateCompanyRequest(companyId, payload);
         toast.success('Empresa emisora actualizada correctamente');
+
+        if (
+          Boolean(user?.company?.allowFutureInvoiceDates)
+          !== Boolean(payload.allowFutureInvoiceDates)
+        ) {
+          selectCompany(companyId);
+          return;
+        }
       } else {
         const data = await createCompanyRequest(payload);
         toast.success('Contribuyente registrado correctamente');
@@ -1113,6 +1124,24 @@ function CompanySettingsPage() {
                   </span>
                   <span className="block text-xs text-gray-500 mt-1">
                     Active esta opción solo si la empresa venderá productos que requieren estos cargos. Si está desactivado, esos campos no aparecerán al generar DTE.
+                  </span>
+                </span>
+              </label>
+
+              <label className="mt-4 flex items-start gap-3 border border-amber-200 bg-amber-50 rounded-xl px-4 py-4 cursor-pointer hover:bg-amber-100/60">
+                <input
+                  type="checkbox"
+                  name="allowFutureInvoiceDates"
+                  checked={form.allowFutureInvoiceDates}
+                  onChange={handleChange}
+                  className="w-4 h-4 mt-1"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-gray-800">
+                    Permitir facturación con fechas futuras
+                  </span>
+                  <span className="block text-xs text-gray-600 mt-1">
+                    Active esta opción únicamente para contribuyentes autorizados por el Administrador. La habilitación elimina la restricción interna del sistema, pero no sustituye las validaciones que pueda aplicar Hacienda al recibir el DTE.
                   </span>
                 </span>
               </label>

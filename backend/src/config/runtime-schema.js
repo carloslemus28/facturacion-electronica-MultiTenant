@@ -231,6 +231,18 @@ const ensureRuntimeSchema = async ({ beforeSync = false } = {}) => {
     changes.push('companies.use_logo_in_pdf');
   }
 
+  if (await ensureColumn({
+    tableName: 'companies',
+    columnName: 'allow_future_invoice_dates',
+    definition: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    }
+  })) {
+    changes.push('companies.allow_future_invoice_dates');
+  }
+
   const companyCredentialColumns = [
     ['smtp_host', { type: DataTypes.STRING(160), allowNull: true }],
     ['smtp_port', { type: DataTypes.INTEGER, allowNull: true }],

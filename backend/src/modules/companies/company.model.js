@@ -170,6 +170,13 @@ economicActivityName3: {
     field: 'uses_fuel_taxes'
   },
 
+  allowFutureInvoiceDates: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    field: 'allow_future_invoice_dates'
+  },
+
   isActive: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
