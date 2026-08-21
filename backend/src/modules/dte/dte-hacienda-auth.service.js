@@ -16,6 +16,23 @@ const getEnvironmentValue = (company, suffix, legacyName) => {
   return process.env[`${environmentPrefix(company)}_${suffix}`] || process.env[legacyName] || null;
 };
 
+const OFFICIAL_AUTH_URLS = {
+  MH_TEST: 'https://apitest.dtes.mh.gob.sv/seguridad/auth',
+  MH_PRODUCTION: 'https://api.dtes.mh.gob.sv/seguridad/auth'
+};
+
+const resolveOfficialAuthUrl = (company, configured) => {
+  const prefix = environmentPrefix(company);
+  const expected = OFFICIAL_AUTH_URLS[prefix];
+  const value = String(configured || expected || '').trim().replace(/\/+$/, '');
+  if (value !== expected) {
+    const error = new Error('La URL de autenticación no coincide con el endpoint publicado en el Manual Tecnológico v2.0');
+    error.statusCode = 500;
+    throw error;
+  }
+  return expected;
+};
+
 const getHaciendaAuthConfig = async (company) => {
   if (!company?.id) {
     const error = new Error('No se pudo determinar el contribuyente para autenticar contra Hacienda');
@@ -24,7 +41,7 @@ const getHaciendaAuthConfig = async (company) => {
   }
 
   const credentials = await companyCredentialsService.getRuntimeCompanyCredentials(company);
-  const authUrl = getEnvironmentValue(company, 'AUTH_URL', 'MH_AUTH_URL');
+  const authUrl = resolveOfficialAuthUrl(company, getEnvironmentValue(company, 'AUTH_URL', 'MH_AUTH_URL'));
   const user = credentials.mhUser || cleanDigits(company.nit);
   const password = credentials.mhPassword;
 
@@ -84,7 +101,7 @@ const requestHaciendaToken = async (company) => {
   try {
     response = await fetch(config.authUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json', 'User-Agent': process.env.MH_USER_AGENT || 'FacturacionElectronicaSV/1.0' },
       body: form.toString(),
       signal: controller.signal
     });

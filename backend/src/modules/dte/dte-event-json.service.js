@@ -212,7 +212,7 @@ const buildSpecialOperationsIssuer = ({ company }) => {
 
 const buildContingencyIdentification = ({ event, company }) => {
   return {
-    version: 3,
+    version: 4,
     ambiente: getEnvironmentCode(company?.environment),
     codigoGeneracion: cleanString(event.generationCode),
     fTransmision: formatDate(event.issuedAt),
@@ -233,7 +233,7 @@ const buildContingencyIssuer = ({ event, company, pointOfSale, establishment }) 
     codEstableMH: cleanString(
       establishment?.establishmentCode || company?.establishmentCode || 'M001'
     ),
-    codPuntoVenta: cleanString(
+    codPuntoVentaMH: cleanString(
       pointOfSale?.code || company?.pointOfSaleCode || 'P001'
     ),
     telefono: cleanPhone(company.phone),

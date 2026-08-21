@@ -5,28 +5,29 @@ const getTimeoutMs = () => {
   return Number.isFinite(value) && value > 0 ? value : 30000;
 };
 
-const deriveConsultationUrl = (receptionUrl) => {
-  if (!receptionUrl) return null;
-
-  try {
-    const url = new URL(receptionUrl);
-    const normalizedPath = url.pathname.replace(/\/+$/, '');
-
-    if (/\/fesv\/recepciondte$/i.test(normalizedPath)) {
-      url.pathname = normalizedPath.replace(
-        /\/fesv\/recepciondte$/i,
-        '/fesv/recepcion/consultadte/'
-      );
-    } else {
-      url.pathname = '/fesv/recepcion/consultadte/';
-    }
-
-    url.search = '';
-    url.hash = '';
-    return url.toString();
-  } catch {
-    return null;
+const OFFICIAL_ENDPOINTS = {
+  MH_TEST: {
+    receptionUrl: 'https://apitest.dtes.mh.gob.sv/fesv/recepciondte',
+    consultationUrl: 'https://apitest.dtes.mh.gob.sv/fesv/recepcion/consultadte',
+    invalidationUrl: 'https://apitest.dtes.mh.gob.sv/fesv/anulardte',
+    contingencyUrl: 'https://apitest.dtes.mh.gob.sv/fesv/contingencia'
+  },
+  MH_PRODUCTION: {
+    receptionUrl: 'https://api.dtes.mh.gob.sv/fesv/recepciondte',
+    consultationUrl: 'https://api.dtes.mh.gob.sv/fesv/recepcion/consultadte',
+    invalidationUrl: 'https://api.dtes.mh.gob.sv/fesv/anulardte',
+    contingencyUrl: 'https://api.dtes.mh.gob.sv/fesv/contingencia'
   }
+};
+
+const resolveOfficialEndpoint = ({ configured, expected, label }) => {
+  const value = String(configured || expected || '').trim().replace(/\/+$/, '');
+  if (!value || value !== expected) {
+    const error = new Error(`${label} no coincide con el endpoint publicado en el Manual Tecnológico v2.0`);
+    error.statusCode = 500;
+    throw error;
+  }
+  return expected;
 };
 
 const getTransmissionConfig = (company) => {
@@ -34,18 +35,13 @@ const getTransmissionConfig = (company) => {
     ? 'MH_PRODUCTION'
     : 'MH_TEST';
   const envValue = (suffix, legacyName) => process.env[`${environment}_${suffix}`] || process.env[legacyName] || null;
+  const official = OFFICIAL_ENDPOINTS[environment];
 
-  const receptionUrl = envValue('RECEPCION_DTE_URL', 'MH_RECEPCION_DTE_URL');
-  const invalidationUrl = envValue('INVALIDACION_DTE_URL', 'MH_INVALIDACION_DTE_URL');
+  const receptionUrl = resolveOfficialEndpoint({ configured: envValue('RECEPCION_DTE_URL', 'MH_RECEPCION_DTE_URL'), expected: official.receptionUrl, label: 'La URL de recepción DTE' });
+  const invalidationUrl = resolveOfficialEndpoint({ configured: envValue('INVALIDACION_DTE_URL', 'MH_INVALIDACION_DTE_URL'), expected: official.invalidationUrl, label: 'La URL de invalidación' });
+  const contingencyUrl = resolveOfficialEndpoint({ configured: envValue('CONTINGENCIA_DTE_URL', 'MH_CONTINGENCIA_DTE_URL') || process.env.MH_CONTINGENCIA_URL, expected: official.contingencyUrl, label: 'La URL de contingencia' });
+  const consultationUrl = resolveOfficialEndpoint({ configured: envValue('CONSULTA_DTE_URL', 'MH_CONSULTA_DTE_URL'), expected: official.consultationUrl, label: 'La URL de Consulta DTE' });
   const eventReceptionUrl = envValue('RECEPCION_EVENTO_URL', 'MH_RECEPCION_EVENTO_URL');
-  const contingencyUrl = envValue('CONTINGENCIA_DTE_URL', 'MH_CONTINGENCIA_DTE_URL') || process.env.MH_CONTINGENCIA_URL;
-  const consultationUrl = envValue('CONSULTA_DTE_URL', 'MH_CONSULTA_DTE_URL') || deriveConsultationUrl(receptionUrl);
-
-  if (!receptionUrl) {
-    const error = new Error(`No se ha configurado la URL de recepción de Hacienda para ${company?.environment || 'TEST'}`);
-    error.statusCode = 500;
-    throw error;
-  }
 
   return { receptionUrl, invalidationUrl, eventReceptionUrl, contingencyUrl, consultationUrl };
 };
@@ -240,35 +236,19 @@ const buildEventPayload = ({ event, officialEventJson, signedJws }) => {
   return payload;
 };
 
-const buildContingencyPayload = ({ event, officialEventJson, signedJws }) => {
-  const identificacion = officialEventJson?.identificacion || {};
-
-  return {
-    ambiente: identificacion.ambiente,
-    idEnvio: Number(event.id),
-    version: Number(identificacion.version || 3),
-    documento: signedJws,
-    codigoGeneracion: identificacion.codigoGeneracion
-  };
+const buildContingencyPayload = ({ officialEventJson, signedJws }) => {
+  const nit = String(officialEventJson?.emisor?.nit || '').replace(/\D/g, '');
+  return { nit, documento: signedJws };
 };
 
 const buildInvalidationPayload = ({ invoice, officialInvalidationJson, signedJws }) => {
   const identificacion = officialInvalidationJson?.identificacion || {};
 
-  const documentTypeCode = String(
-    invoice?.documentTypeCode ||
-    invoice?.document_type_code ||
-    officialInvalidationJson?.documento?.tipoDte ||
-    ''
-  ).padStart(2, '0');
-
   return {
     ambiente: identificacion.ambiente,
     idEnvio: Number(invoice.id),
     version: Number(process.env.MH_INVALIDACION_EVENT_VERSION || identificacion.version || 2),
-    tipoDte: documentTypeCode,
-    documento: signedJws,
-    codigoGeneracion: identificacion.codigoGeneracion
+    documento: signedJws
   };
 };
 
@@ -678,6 +658,12 @@ const transmitSignedEvent = async ({ event, company, officialEventJson, signedJw
     throw error;
   }
 
+  if (String(config.eventReceptionUrl).replace(/\/+$/, '') === String(config.receptionUrl).replace(/\/+$/, '')) {
+    const error = new Error('MH_RECEPCION_EVENTO_URL no puede reutilizar el endpoint de recepción DTE. Configure únicamente un endpoint de evento expresamente publicado por Hacienda.');
+    error.statusCode = 500;
+    throw error;
+  }
+
   const payload = buildEventPayload({
     event,
     officialEventJson,
@@ -738,17 +724,13 @@ const transmitSignedContingencyEvent = async ({ event, company, officialEventJso
   }
 
   const payload = buildContingencyPayload({
-    event,
     officialEventJson,
     signedJws
   });
 
   console.log('[MH CONTINGENCY PAYLOAD]', {
     url: config.contingencyUrl,
-    ambiente: payload.ambiente,
-    idEnvio: payload.idEnvio,
-    version: payload.version,
-    codigoGeneracion: payload.codigoGeneracion,
+    nit: payload.nit,
     documentoLength: String(payload.documento || '').length
   });
 

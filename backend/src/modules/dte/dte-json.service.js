@@ -162,8 +162,8 @@ const getDteVersion = (documentTypeCode) => {
     '01': 1,
     '03': 3,
     '05': 3,
-    '11': 1,
-    '14': 1
+    '11': 3,
+    '14': 2
   };
 
   return versions[String(documentTypeCode)] || 1;
@@ -553,7 +553,7 @@ const buildIdentification = (invoice) => {
   if (isExportInvoice(documentTypeCode)) {
     return {
       ...base,
-      motivoContigencia: cleanString(invoice.motivoContin)
+      motivoContin: cleanString(invoice.motivoContin)
     };
   }
 
@@ -605,11 +605,19 @@ const buildIssuer = (invoice) => {
   if (isExcludedSubjectInvoice(documentTypeCode)) {
     delete issuer.nombreComercial;
     delete issuer.tipoEstablecimiento;
+    delete issuer.codEstableMH;
+    delete issuer.codPuntoVentaMH;
+    issuer.direccion.distrito = cleanString(establishment.districtName || company.districtName) || '';
   }
 
   if (isExportInvoice(documentTypeCode)) {
+    delete issuer.tipoEstablecimiento;
+    delete issuer.codEstableMH;
+    delete issuer.codPuntoVentaMH;
+    issuer.direccion.distrito = cleanString(establishment.districtName || company.districtName) || '';
     issuer.tipoItemExpor = getExportItemType(invoice);
     issuer.recintoFiscal = cleanString(invoice.recintoFiscal || company.recintoFiscal) || null;
+    issuer.tipoRegimen = cleanString(invoice.tipoRegimen || company.tipoRegimen) || null;
     issuer.regimen = cleanString(invoice.regimen || company.regimen) || null;
   }
 
@@ -802,6 +810,7 @@ const buildExcludedSubject = (customer, company = {}) => {
         municipalityCode: customer.municipalityCode,
         municipalityName: customer.municipalityName
       }),
+      distrito: cleanString(customer.districtName) || '',
       complemento: cleanAddressComplement(customer.addressComplement)
     },
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
@@ -910,8 +919,11 @@ const buildExportBodyItem = ({ item, index }) => {
 
   return {
     numItem: index + 1,
+    tipoItem: getItemTypeCode(item.itemType),
+    numeroDocumento: null,
     cantidad: round4(item.quantity),
     codigo: cleanString(item.code),
+    codTributo: null,
     uniMedida: getUnitOfMeasureCode(item.unitOfMeasure),
     descripcion: cleanString(item.description),
     precioUni: round4(item.unitPrice),
@@ -1137,26 +1149,29 @@ const buildExportSummary = (invoice) => {
   const operationConditionCode = getOperationConditionCode(invoice.operationCondition);
 
   const totalGravada = round2(invoice.gravada || invoice.subtotal || invoice.total);
-  const descuento = 0;
   const porcentajeDescuento = 0;
   const totalDescu = 0;
   const seguro = round2(invoice.insurance || invoice.seguro || 0);
   const flete = round2(invoice.freight || invoice.flete || 0);
   const montoTotalOperacion = round2(totalGravada + seguro + flete);
   const totalNoGravado = 0;
+  const totalNoOnerosas = 0;
   const totalPagar = round2(invoice.total || montoTotalOperacion);
 
   return {
     totalGravada,
-    descuento,
+    descuGravada: 0,
     porcentajeDescuento,
     totalDescu,
     seguro,
     flete,
+    tributos: null,
     montoTotalOperacion,
     totalNoGravado,
+    totalNoOnerosas,
     totalPagar,
     totalLetras: amountToSpanishWords(totalPagar),
+    saldoFavor: 0,
     condicionOperacion: operationConditionCode,
     pagos: buildPayments(invoice, totalPagar),
     codIncoterms: cleanString(invoice.codIncoterms || invoice.incotermsCode) || null,
@@ -1173,16 +1188,15 @@ const buildExcludedSubjectSummary = (invoice) => {
   const descu = 0;
   const totalDescu = 0;
   const subTotal = round2(totalCompra - totalDescu);
-  const ivaRete1 = round2(invoice.retention1);
-  const reteRenta = 0;
-  const totalPagar = round2(invoice.total || (subTotal - ivaRete1 - reteRenta));
+  // El esquema oficial DTE 14 v2 informa esta retención como reteRenta.
+  const reteRenta = round2(invoice.retention1);
+  const totalPagar = round2(invoice.total || (subTotal - reteRenta));
 
   return {
     totalCompra,
     descu,
     totalDescu,
     subTotal,
-    ivaRete1,
     reteRenta,
     totalPagar,
     totalLetras: amountToSpanishWords(totalPagar),
@@ -1306,7 +1320,7 @@ const buildStandardDteJson = (invoice) => {
     return {
       identificacion: buildIdentification(invoice),
       emisor: buildIssuer(invoice),
-      sujetoExcluido: buildExcludedSubject(invoice.customer || {}, invoice.company || {}),
+      receptor: buildExcludedSubject(invoice.customer || {}, invoice.company || {}),
       cuerpoDocumento: buildBody(invoice),
       resumen: buildSummary(invoice),
       apendice: buildAppendix(invoice)
@@ -1330,10 +1344,12 @@ const buildStandardDteJson = (invoice) => {
   if (isExportInvoice(documentTypeCode)) {
     return {
       identificacion: buildIdentification(invoice),
+      documentoRelacionado: null,
       emisor: buildIssuer(invoice),
       receptor: buildReceiver(invoice),
       otrosDocumentos: null,
       ventaTercero: null,
+      compraTercero: null,
       cuerpoDocumento: buildBody(invoice),
       resumen: buildSummary(invoice),
       apendice: buildAppendix(invoice)
@@ -1548,6 +1564,33 @@ const buildOfficialInvalidationJson = (invoice) => {
   return eventJson;
 };
 
+const buildDteFileJson = (invoice) => {
+  const signedJws = cleanString(invoice?.signedJws);
+  let dte = null;
+
+  if (signedJws) {
+    const parts = signedJws.split('.');
+    if (parts.length >= 2) {
+      try {
+        const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+        const decoded = Buffer.from(`${normalized}${padding}`, 'base64').toString('utf8');
+        const payload = JSON.parse(decoded);
+        if (payload?.identificacion?.tipoDte) dte = payload;
+      } catch {
+        dte = null;
+      }
+    }
+  }
+
+  if (!dte) dte = buildOfficialStandardDteJson(invoice);
+
+  const output = { ...dte };
+  if (signedJws) output.firmaElectronica = signedJws;
+  if (invoice?.receptionSeal) output.selloRecibido = cleanString(invoice.receptionSeal);
+  return output;
+};
+
 const getDteJsonByInvoiceId = async ({ id, user, type = 'document' }) => {
   const invoice = await invoicesService.getInvoiceById(id, {
     user
@@ -1587,7 +1630,7 @@ const getDteJsonByInvoiceId = async ({ id, user, type = 'document' }) => {
     return buildInvalidationJson(invoice);
   }
 
-  return buildStandardDteJson(invoice);
+  return buildDteFileJson(invoice);
 };
 
 module.exports = {
