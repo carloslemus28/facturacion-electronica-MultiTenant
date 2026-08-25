@@ -24,7 +24,7 @@ const OFFICIAL_AUTH_URLS = {
 const resolveOfficialAuthUrl = (company, configured) => {
   const prefix = environmentPrefix(company);
   const expected = OFFICIAL_AUTH_URLS[prefix];
-  const value = String(configured || expected || '').trim().replace(/\/+$/, '');
+  const value = String(configured || expected || '').trim();
   if (value !== expected) {
     const error = new Error('La URL de autenticación no coincide con el endpoint publicado en el Manual Tecnológico v2.0');
     error.statusCode = 500;

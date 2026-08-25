@@ -7,6 +7,7 @@ const {
   normalizeDepartmentCatalogCode,
   normalizeMunicipalityCatalogCode
 } = require('../../utils/el-salvador-catalogs');
+const { normalizeUnitOfMeasureCode, normalizeFiscalPrecinctCode } = require('../../utils/hacienda-catalogs');
 
 const DOCUMENT_TYPE_CODES = {
   FACTURA: '01',
@@ -25,9 +26,11 @@ const OPERATION_CONDITIONS = {
 const PAYMENT_METHODS = {
   EFECTIVO: '01',
   TARJETA: '02',
-  CHEQUE: '03',
+  TARJETA_DEBITO: '02',
+  TARJETA_CREDITO: '03',
+  CHEQUE: '04',
   TRANSFERENCIA: '05',
-  DEPOSITO: '06',
+  DEPOSITO: '05',
   OTRO: '99'
 };
 
@@ -185,25 +188,39 @@ const getEnvironmentCode = (environment) => {
 
 const getEstablishmentTypeCode = (establishmentType) => {
   const map = {
-    CASA_MATRIZ: '01',
-    SUCURSAL: '02',
+    CASA_MATRIZ: '02',
+    SUCURSAL: '01',
     BODEGA: '04',
     PREDIO: '07'
   };
 
-  return map[establishmentType] || '01';
+  return map[establishmentType] || '02';
 };
 
-const getUnitOfMeasureCode = (unitOfMeasure) => {
-  const code = cleanDigits(unitOfMeasure);
-
-  if (!code) return 59;
-
-  return Number(code);
+const getUnitOfMeasureCode = (unitOfMeasure, unitOfMeasureName) => {
+  return normalizeUnitOfMeasureCode({
+    code: unitOfMeasure,
+    name: unitOfMeasureName
+  });
 };
 
 const getItemTypeCode = (itemType) => {
   return itemType === 'PRODUCTO' ? 1 : 2;
+};
+
+
+const getFiscalPrecinctCode = (value) => {
+  const raw = cleanString(value);
+  if (!raw) return null;
+
+  const code = normalizeFiscalPrecinctCode(raw);
+  if (!code) {
+    const error = new Error(`Recinto fiscal CAT-027 no válido: ${raw}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return code;
 };
 
 const getDocumentTypeForReceiver = (documentType) => {
@@ -582,6 +599,8 @@ const buildIssuer = (invoice) => {
         establishment.departmentCode || company.departmentCode
       ),
       municipio: normalizeMunicipalityCatalogCode({
+        departmentCode: establishment.departmentCode || company.departmentCode,
+        districtName: establishment.districtName || company.districtName,
         municipalityCode: establishment.municipalityCode || company.municipalityCode,
         municipalityName: establishment.municipalityName || company.municipalityName
       }),
@@ -616,7 +635,7 @@ const buildIssuer = (invoice) => {
     delete issuer.codPuntoVentaMH;
     issuer.direccion.distrito = cleanString(establishment.districtName || company.districtName) || '';
     issuer.tipoItemExpor = getExportItemType(invoice);
-    issuer.recintoFiscal = cleanString(invoice.recintoFiscal || company.recintoFiscal) || null;
+    issuer.recintoFiscal = getFiscalPrecinctCode(invoice.recintoFiscal || company.recintoFiscal);
     issuer.tipoRegimen = cleanString(invoice.tipoRegimen || company.tipoRegimen) || null;
     issuer.regimen = cleanString(invoice.regimen || company.regimen) || null;
   }
@@ -729,6 +748,8 @@ const buildConsumerFinalReceiver = (customer, company = {}) => {
     direccion: {
       departamento: normalizeDepartmentCatalogCode(customer.departmentCode),
       municipio: normalizeMunicipalityCatalogCode({
+        departmentCode: customer.departmentCode,
+        districtName: customer.districtName,
         municipalityCode: customer.municipalityCode,
         municipalityName: customer.municipalityName
       }),
@@ -754,6 +775,8 @@ const buildTaxpayerReceiver = (customer, company = {}) => {
     direccion: {
       departamento: normalizeDepartmentCatalogCode(customer.departmentCode),
       municipio: normalizeMunicipalityCatalogCode({
+        departmentCode: customer.departmentCode,
+        districtName: customer.districtName,
         municipalityCode: customer.municipalityCode,
         municipalityName: customer.municipalityName
       }),
@@ -807,6 +830,8 @@ const buildExcludedSubject = (customer, company = {}) => {
     direccion: {
       departamento: normalizeDepartmentCatalogCode(customer.departmentCode),
       municipio: normalizeMunicipalityCatalogCode({
+        departmentCode: customer.departmentCode,
+        districtName: customer.districtName,
         municipalityCode: customer.municipalityCode,
         municipalityName: customer.municipalityName
       }),
@@ -856,7 +881,7 @@ const buildConsumerFinalBodyItem = ({ invoice, item, index }) => {
     cantidad: round4(item.quantity),
     codigo: cleanString(item.code),
     codTributo: null,
-    uniMedida: getUnitOfMeasureCode(item.unitOfMeasure),
+    uniMedida: getUnitOfMeasureCode(item.unitOfMeasure, item.unitOfMeasureName),
     descripcion: cleanString(item.description),
     precioUni: round4(item.unitPrice),
     montoDescu: 0,
@@ -880,7 +905,7 @@ const buildTaxpayerBodyItem = ({ invoice, item, index }) => {
     cantidad: round4(item.quantity),
     codigo: cleanString(item.code),
     codTributo: null,
-    uniMedida: getUnitOfMeasureCode(item.unitOfMeasure),
+    uniMedida: getUnitOfMeasureCode(item.unitOfMeasure, item.unitOfMeasureName),
     descripcion: cleanString(item.description),
     precioUni: round4(item.unitPrice),
     montoDescu: 0,
@@ -903,7 +928,7 @@ const buildCreditNoteBodyItem = ({ invoice, item, index }) => {
     cantidad: round4(item.quantity),
     codigo: cleanString(item.code),
     codTributo: null,
-    uniMedida: getUnitOfMeasureCode(item.unitOfMeasure),
+    uniMedida: getUnitOfMeasureCode(item.unitOfMeasure, item.unitOfMeasureName),
     descripcion: cleanString(item.description),
     precioUni: round4(item.unitPrice),
     montoDescu: 0,
@@ -924,7 +949,7 @@ const buildExportBodyItem = ({ item, index }) => {
     cantidad: round4(item.quantity),
     codigo: cleanString(item.code),
     codTributo: null,
-    uniMedida: getUnitOfMeasureCode(item.unitOfMeasure),
+    uniMedida: getUnitOfMeasureCode(item.unitOfMeasure, item.unitOfMeasureName),
     descripcion: cleanString(item.description),
     precioUni: round4(item.unitPrice),
     montoDescu: 0,
@@ -940,7 +965,7 @@ const buildExcludedSubjectBodyItem = ({ item, index }) => {
     tipoItem: getItemTypeCode(item.itemType),
     cantidad: round4(item.quantity),
     codigo: cleanString(item.code),
-    uniMedida: getUnitOfMeasureCode(item.unitOfMeasure),
+    uniMedida: getUnitOfMeasureCode(item.unitOfMeasure, item.unitOfMeasureName),
     descripcion: cleanString(item.description),
     precioUni: round4(item.unitPrice),
     montoDescu: 0,

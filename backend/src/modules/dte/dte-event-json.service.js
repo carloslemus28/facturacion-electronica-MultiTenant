@@ -1,4 +1,5 @@
 const { amountToSpanishWords } = require('./dte-json.service');
+const { normalizeFiscalPrecinctCode } = require('../../utils/hacienda-catalogs');
 
 const EVENT_TYPE_CODES = {
   OPERACIONES_ESPECIALES: '17',
@@ -123,13 +124,27 @@ const getDocumentTypeForReceiver = (documentType) => {
 
 const getEstablishmentTypeCode = (establishmentType) => {
   const map = {
-    CASA_MATRIZ: '01',
-    SUCURSAL: '02',
+    CASA_MATRIZ: '02',
+    SUCURSAL: '01',
     BODEGA: '04',
     PREDIO: '07'
   };
 
-  return map[establishmentType] || '01';
+  return map[establishmentType] || '02';
+};
+
+const getFiscalPrecinctCode = (value) => {
+  const raw = cleanString(value);
+  if (!raw) return null;
+
+  const code = normalizeFiscalPrecinctCode(raw);
+  if (!code) {
+    const error = new Error(`Recinto fiscal CAT-027 no válido: ${raw}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return code;
 };
 
 const safeJsonArray = (value) => {
@@ -196,7 +211,7 @@ const buildReturnIssuer = ({ event, company, pointOfSale, establishment }) => {
     codEstable: cleanString(establishment.establishmentCode || company.establishmentCode || 'M001'),
     codPuntoVentaMH: cleanString(pointOfSale.code || company.pointOfSaleCode || 'P001'),
     codPuntoVenta: cleanString(pointOfSale.code || company.pointOfSaleCode || 'P001'),
-    recintoFiscal: cleanString(event.recintoFiscal),
+    recintoFiscal: getFiscalPrecinctCode(event.recintoFiscal),
     tipoRegimen: cleanString(event.tipoRegimen),
     regimen: cleanString(event.regimen),
     tipoItemExpor: event.tipoItemExpor === undefined ? null : event.tipoItemExpor

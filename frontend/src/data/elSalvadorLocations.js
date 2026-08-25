@@ -1,4 +1,4 @@
-// CAT-012/CAT-013 - Catálogos Sistema de Transmisión v1.2 (10/2025).
+// CAT-012/CAT-013 - Catálogos Facturación Electrónica v1.1 (07/2026).
 export const elSalvadorLocations = [
   {
     "departmentCode": "01",
@@ -1536,7 +1536,7 @@ export const elSalvadorLocations = [
     "districtCode": "090109",
     "oldDistrictCode": "0909",
     "districtName": "Dolores / Villa Dolores",
-    "municipalityCode": "11",
+    "municipalityCode": "10",
     "municipalityName": "Cabañas Este",
     "label": "Cabañas / Dolores / Villa Dolores / Cabañas Este"
   },
@@ -1546,7 +1546,7 @@ export const elSalvadorLocations = [
     "districtCode": "090102",
     "oldDistrictCode": "0902",
     "districtName": "Guacotecti",
-    "municipalityCode": "11",
+    "municipalityCode": "10",
     "municipalityName": "Cabañas Este",
     "label": "Cabañas / Guacotecti / Cabañas Este"
   },
@@ -1556,7 +1556,7 @@ export const elSalvadorLocations = [
     "districtCode": "090105",
     "oldDistrictCode": "0905",
     "districtName": "San Isidro",
-    "municipalityCode": "11",
+    "municipalityCode": "10",
     "municipalityName": "Cabañas Este",
     "label": "Cabañas / San Isidro / Cabañas Este"
   },
@@ -1566,7 +1566,7 @@ export const elSalvadorLocations = [
     "districtCode": "090106",
     "oldDistrictCode": "0906",
     "districtName": "Sensuntepeque",
-    "municipalityCode": "11",
+    "municipalityCode": "10",
     "municipalityName": "Cabañas Este",
     "label": "Cabañas / Sensuntepeque / Cabañas Este"
   },
@@ -1576,7 +1576,7 @@ export const elSalvadorLocations = [
     "districtCode": "090108",
     "oldDistrictCode": "0908",
     "districtName": "Victoria",
-    "municipalityCode": "11",
+    "municipalityCode": "10",
     "municipalityName": "Cabañas Este",
     "label": "Cabañas / Victoria / Cabañas Este"
   },
@@ -1586,7 +1586,7 @@ export const elSalvadorLocations = [
     "districtCode": "090201",
     "oldDistrictCode": "0901",
     "districtName": "Cinquera",
-    "municipalityCode": "10",
+    "municipalityCode": "11",
     "municipalityName": "Cabañas Oeste",
     "label": "Cabañas / Cinquera / Cabañas Oeste"
   },
@@ -1596,7 +1596,7 @@ export const elSalvadorLocations = [
     "districtCode": "090203",
     "oldDistrictCode": "0903",
     "districtName": "Ilobasco",
-    "municipalityCode": "10",
+    "municipalityCode": "11",
     "municipalityName": "Cabañas Oeste",
     "label": "Cabañas / Ilobasco / Cabañas Oeste"
   },
@@ -1606,7 +1606,7 @@ export const elSalvadorLocations = [
     "districtCode": "090204",
     "oldDistrictCode": "0904",
     "districtName": "Jutiapa",
-    "municipalityCode": "10",
+    "municipalityCode": "11",
     "municipalityName": "Cabañas Oeste",
     "label": "Cabañas / Jutiapa / Cabañas Oeste"
   },
@@ -1616,7 +1616,7 @@ export const elSalvadorLocations = [
     "districtCode": "090207",
     "oldDistrictCode": "0907",
     "districtName": "Tejutepeque",
-    "municipalityCode": "10",
+    "municipalityCode": "11",
     "municipalityName": "Cabañas Oeste",
     "label": "Cabañas / Tejutepeque / Cabañas Oeste"
   },

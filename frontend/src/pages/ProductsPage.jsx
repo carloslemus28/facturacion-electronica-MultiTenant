@@ -32,15 +32,16 @@ const initialForm = {
 
 const unitOptions = [
   { code: '59', name: 'Unidad' },
-  { code: '99', name: 'Servicio' },
+  { code: '99', name: 'Otra' },
   { code: '36', name: 'Libra' },
   { code: '34', name: 'Kilogramo' },
-  { code: '22', name: 'Litro' },
-  { code: '23', name: 'Metro' },
-  { code: '24', name: 'Yarda' },
-  { code: '26', name: 'Docena' },
-  { code: '08', name: 'Galón' },
-  { code: '57', name: 'Hora' }
+  { code: '23', name: 'Litro' },
+  { code: '01', name: 'Metro' },
+  { code: '02', name: 'Yarda' },
+  { code: '58', name: 'Docena' },
+  { code: '22', name: 'Galón' },
+  { code: '24', name: 'Botella' },
+  { code: '26', name: 'Mililitro' }
 ];
 
 function ProductsPage() {

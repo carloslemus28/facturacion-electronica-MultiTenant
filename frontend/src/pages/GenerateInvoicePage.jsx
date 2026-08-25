@@ -47,7 +47,8 @@ const operationConditionOptions = [
 
 const paymentMethodOptions = [
   { value: 'EFECTIVO', label: 'Efectivo' },
-  { value: 'TARJETA', label: 'Tarjeta' },
+  { value: 'TARJETA', label: 'Tarjeta de débito' },
+  { value: 'TARJETA_CREDITO', label: 'Tarjeta de crédito' },
   { value: 'TRANSFERENCIA', label: 'Transferencia' },
   { value: 'CHEQUE', label: 'Cheque' },
   { value: 'OTRO', label: 'Otro' }

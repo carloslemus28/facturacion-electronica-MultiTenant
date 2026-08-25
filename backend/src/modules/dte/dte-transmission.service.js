@@ -21,7 +21,7 @@ const OFFICIAL_ENDPOINTS = {
 };
 
 const resolveOfficialEndpoint = ({ configured, expected, label }) => {
-  const value = String(configured || expected || '').trim().replace(/\/+$/, '');
+  const value = String(configured || expected || '').trim();
   if (!value || value !== expected) {
     const error = new Error(`${label} no coincide con el endpoint publicado en el Manual Tecnológico v2.0`);
     error.statusCode = 500;
@@ -42,8 +42,11 @@ const getTransmissionConfig = (company) => {
   const contingencyUrl = resolveOfficialEndpoint({ configured: envValue('CONTINGENCIA_DTE_URL', 'MH_CONTINGENCIA_DTE_URL') || process.env.MH_CONTINGENCIA_URL, expected: official.contingencyUrl, label: 'La URL de contingencia' });
   const consultationUrl = resolveOfficialEndpoint({ configured: envValue('CONSULTA_DTE_URL', 'MH_CONSULTA_DTE_URL'), expected: official.consultationUrl, label: 'La URL de Consulta DTE' });
   const eventReceptionUrl = envValue('RECEPCION_EVENTO_URL', 'MH_RECEPCION_EVENTO_URL');
+  const safeEventReceptionUrl = eventReceptionUrl && String(eventReceptionUrl).trim() !== receptionUrl
+    ? String(eventReceptionUrl).trim()
+    : null;
 
-  return { receptionUrl, invalidationUrl, eventReceptionUrl, contingencyUrl, consultationUrl };
+  return { receptionUrl, invalidationUrl, eventReceptionUrl: safeEventReceptionUrl, contingencyUrl, consultationUrl };
 };
 
 const parsePossibleJson = (value) => {

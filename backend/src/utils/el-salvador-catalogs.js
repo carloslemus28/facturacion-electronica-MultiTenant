@@ -3,7 +3,7 @@ const DEPARTMENT_CODES = new Set([
   '08', '09', '10', '11', '12', '13', '14'
 ]);
 
-// CAT-013 Municipio - Catálogos Sistema de Transmisión, versión 1.2 (10/2025).
+// CAT-013 Municipio - Catálogos Facturación Electrónica v1.1 (07/2026).
 // El catálogo asigna códigos de 2 dígitos por departamento; por eso el mismo
 // código puede existir en departamentos distintos.
 const MUNICIPALITY_CODE_BY_NAME = Object.freeze({
@@ -37,8 +37,8 @@ const MUNICIPALITY_CODE_BY_NAME = Object.freeze({
   'LA PAZ OESTE': '23',
   'LA PAZ CENTRO': '24',
   'LA PAZ ESTE': '25',
-  'CABANAS OESTE': '10',
-  'CABANAS ESTE': '11',
+  'CABANAS ESTE': '10',
+  'CABANAS OESTE': '11',
   'SAN VICENTE NORTE': '14',
   'SAN VICENTE SUR': '15',
   'USULUTAN NORTE': '24',
@@ -64,7 +64,7 @@ const LEGACY_MUNICIPALITY_CODE_MAP = Object.freeze({
   '0601': '23', '0602': '22', '0603': '20', '0604': '21', '0605': '24',
   '0701': '17', '0702': '18',
   '0801': '24', '0802': '25', '0803': '23',
-  '0901': '11', '0902': '10',
+  '0901': '10', '0902': '11',
   '1001': '14', '1002': '15',
   '1101': '25', '1102': '24', '1103': '26',
   '1201': '22', '1202': '21', '1203': '23',
@@ -78,6 +78,21 @@ const normalizeCatalogName = (value) => String(value || '')
   .replace(/[\u0300-\u036f]/g, '')
   .toUpperCase();
 
+
+const CABANAS_MUNICIPALITY_CODE_BY_DISTRICT = Object.freeze({
+  'DOLORES / VILLA DOLORES': '10',
+  'DOLORES': '10',
+  'VILLA DOLORES': '10',
+  'GUACOTECTI': '10',
+  'SAN ISIDRO': '10',
+  'SENSUNTEPEQUE': '10',
+  'VICTORIA': '10',
+  'CINQUERA': '11',
+  'ILOBASCO': '11',
+  'JUTIAPA': '11',
+  'TEJUTEPEQUE': '11'
+});
+
 const normalizeDepartmentCatalogCode = (value) => {
   const digits = String(value ?? '').replace(/\D/g, '');
   if (!digits) return null;
@@ -86,7 +101,17 @@ const normalizeDepartmentCatalogCode = (value) => {
   return DEPARTMENT_CODES.has(code) ? code : null;
 };
 
-const normalizeMunicipalityCatalogCode = ({ municipalityCode, municipalityName } = {}) => {
+const normalizeMunicipalityCatalogCode = ({ departmentCode, districtName, municipalityCode, municipalityName } = {}) => {
+  const department = normalizeDepartmentCatalogCode(departmentCode);
+
+  // CAT-013 v1.1 intercambió los códigos de Cabañas Este/Oeste. Para
+  // registros históricos se prioriza nombre/distrito antes que el código
+  // almacenado, que puede corresponder al catálogo anterior.
+  if (department === '09') {
+    const byDistrict = CABANAS_MUNICIPALITY_CODE_BY_DISTRICT[normalizeCatalogName(districtName)];
+    if (byDistrict) return byDistrict;
+  }
+
   const byName = MUNICIPALITY_CODE_BY_NAME[normalizeCatalogName(municipalityName)];
   if (byName) return byName;
 
