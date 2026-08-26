@@ -61,6 +61,7 @@ const documentTypeNames = {
 const RETURN_EVENT_FEATURE_ENABLED = import.meta.env.VITE_RETURN_EVENT_FEATURE_ENABLED === 'true';
 
 const ITEMS_PER_PAGE = 15;
+const RETRANSMITTABLE_INVOICE_STATUSES = ['GENERADO', 'FIRMADO', 'RECHAZADO'];
 
 const getCurrentMonthDateRange = (value = new Date()) => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -593,8 +594,13 @@ const getDocumentTypeOrder = (documentTypeCode) => {
   };
 
   const handleTransmit = (invoice) => {
-    if (invoice.status !== 'GENERADO') {
-      toast.error('Solo se pueden transmitir documentos en estado GENERADO');
+    if (!RETRANSMITTABLE_INVOICE_STATUSES.includes(invoice.status)) {
+      toast.error('Este documento no está disponible para transmisión');
+      return;
+    }
+
+    if (invoice.isHistoricalImport) {
+      toast.error('Los DTE históricos importados no deben retransmitirse');
       return;
     }
 
@@ -1113,7 +1119,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
           {groupTitle('Gestión')}
 
           <div className="space-y-2">
-            {invoice.status === 'GENERADO' && !invoice.isHistoricalImport && (
+            {RETRANSMITTABLE_INVOICE_STATUSES.includes(invoice.status) && !invoice.isHistoricalImport && (
               <button
                 type="button"
                 onClick={() => handleTransmit(invoice)}
@@ -1121,7 +1127,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
                 className={`${buttonBase} bg-green-700 text-white hover:bg-green-800`}
               >
                 {isProcessing ? <Loader2 className="animate-spin" size={17} /> : <Send size={17} />}
-                Enviar a Hacienda
+                {invoice.status === 'FIRMADO' ? 'Verificar y enviar a Hacienda' : 'Enviar a Hacienda'}
               </button>
             )}
 
@@ -1137,12 +1143,6 @@ const renderEmailLogAttachments = (attachmentsJson) => {
                 {isProcessing ? <Loader2 className="animate-spin" size={17} /> : <RefreshCcw size={17} />}
                 Sincronizar con Hacienda
               </button>
-            )}
-
-            {invoice.status === 'GENERADO' && invoice.isHistoricalImport && !isAdmin && (
-              <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-3 text-sm text-amber-900 text-center">
-                DTE histórico pendiente de sincronización por el Administrador.
-              </div>
             )}
 
             {invoice.status === 'ACEPTADO' && (
@@ -1193,7 +1193,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
               </button>
             )}
 
-            {!['GENERADO', 'ACEPTADO', 'ANULADO'].includes(invoice.status) && (
+            {!['GENERADO', 'FIRMADO', 'RECHAZADO', 'ACEPTADO', 'ANULADO'].includes(invoice.status) && (
               <div className="rounded-xl bg-gray-50 border px-3 py-3 text-sm text-gray-500 text-center">
                 Sin acciones disponibles.
               </div>
@@ -1237,7 +1237,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
               El documento será enviado oficialmente a Hacienda.
             </p>
             <p className="mt-1">
-              Después de transmitirlo, Hacienda puede aceptarlo o rechazarlo según la validación del DTE.
+              Antes de retransmitir un DTE firmado, el sistema verificará primero si Hacienda ya lo recibió. Si no existe registro, realizará un nuevo intento de recepción.
             </p>
           </div>
         </div>

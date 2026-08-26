@@ -8,18 +8,32 @@ const authenticate = async (req, res, next) => {
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
         ok: false,
+        code: 'ACCESS_TOKEN_MISSING',
         message: 'Token de acceso no proporcionado'
       });
     }
 
     const token = authHeader.split(' ')[1];
-    const payload = verifyAccessToken(token);
+    let payload;
+
+    try {
+      payload = verifyAccessToken(token);
+    } catch (tokenError) {
+      const expired = tokenError?.name === 'TokenExpiredError';
+
+      return res.status(401).json({
+        ok: false,
+        code: expired ? 'ACCESS_TOKEN_EXPIRED' : 'ACCESS_TOKEN_INVALID',
+        message: expired ? 'Token de acceso vencido' : 'Token de acceso inválido'
+      });
+    }
 
     const { user, roles, permissions } = await authService.getUserRolesAndPermissions(payload.sub);
 
     if (!user || !user.isActive) {
       return res.status(401).json({
         ok: false,
+        code: 'USER_NOT_AVAILABLE',
         message: 'Usuario no autorizado'
       });
     }

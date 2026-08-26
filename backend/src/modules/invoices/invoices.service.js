@@ -1515,32 +1515,89 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
   });
 };
 
+const HISTORICAL_IMPORT_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+const isHistoricalImportArtifactValidForInvoice = (artifact, invoice) => {
+  if (!artifact || !invoice) return false;
+
+  if (Number(artifact.companyId) !== Number(invoice.companyId)) return false;
+  if (Number(artifact.invoiceId) !== Number(invoice.id)) return false;
+
+  const importedAt = artifact.importedAt ? new Date(artifact.importedAt).getTime() : null;
+  const invoiceCreatedAt = invoice.createdAt ? new Date(invoice.createdAt).getTime() : null;
+
+  // Un artefacto histórico real se crea junto con la factura importada. Si el
+  // artefacto es claramente anterior al registro actual, probablemente quedó
+  // huérfano de una limpieza/reset anterior y no debe convertir un DTE nuevo
+  // en "histórico".
+  if (
+    Number.isFinite(importedAt)
+    && Number.isFinite(invoiceCreatedAt)
+    && importedAt + HISTORICAL_IMPORT_CLOCK_SKEW_MS < invoiceCreatedAt
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
+const findHistoricalImportArtifactForInvoice = async (invoice, attributes = ['id', 'companyId', 'invoiceId', 'importedAt', 'sourceJsonName']) => {
+  if (!invoice?.id || !invoice?.companyId) return null;
+
+  const artifact = await InvoiceImportArtifact.findOne({
+    attributes,
+    where: {
+      companyId: invoice.companyId,
+      invoiceId: invoice.id
+    }
+  });
+
+  return isHistoricalImportArtifactValidForInvoice(artifact, invoice)
+    ? artifact
+    : null;
+};
+
 const attachHistoricalImportFlagsToInvoices = async (invoices) => {
   const invoiceList = Array.isArray(invoices) ? invoices : [invoices];
-  const invoiceIds = invoiceList
-    .filter(Boolean)
-    .map((invoice) => Number(invoice.id))
-    .filter(Number.isInteger);
+  const usableInvoices = invoiceList.filter(
+    (invoice) => invoice?.id && invoice?.companyId
+  );
 
-  if (invoiceIds.length === 0) return invoices;
+  if (usableInvoices.length === 0) return invoices;
+
+  const invoiceIds = [...new Set(
+    usableInvoices.map((invoice) => Number(invoice.id)).filter(Number.isInteger)
+  )];
+  const companyIds = [...new Set(
+    usableInvoices.map((invoice) => Number(invoice.companyId)).filter(Number.isInteger)
+  )];
 
   const artifacts = await InvoiceImportArtifact.findAll({
-    attributes: ['invoiceId'],
+    attributes: ['invoiceId', 'companyId', 'importedAt'],
     where: {
       invoiceId: {
         [Op.in]: invoiceIds
+      },
+      companyId: {
+        [Op.in]: companyIds
       }
     }
   });
 
-  const importedInvoiceIds = new Set(
-    artifacts.map((artifact) => Number(artifact.invoiceId))
+  const artifactsByInvoice = new Map(
+    artifacts.map((artifact) => [
+      `${Number(artifact.companyId)}:${Number(artifact.invoiceId)}`,
+      artifact
+    ])
   );
 
-  for (const invoice of invoiceList) {
+  for (const invoice of usableInvoices) {
+    const key = `${Number(invoice.companyId)}:${Number(invoice.id)}`;
+    const artifact = artifactsByInvoice.get(key);
+
     invoice.setDataValue(
       'isHistoricalImport',
-      importedInvoiceIds.has(Number(invoice.id))
+      isHistoricalImportArtifactValidForInvoice(artifact, invoice)
     );
   }
 
@@ -1566,6 +1623,61 @@ const parseHaciendaProcessingDate = (value) => {
 
   const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+
+const stringifyHaciendaResponse = (value) => {
+  try {
+    return JSON.stringify(value || '').toUpperCase();
+  } catch {
+    return String(value || '').toUpperCase();
+  }
+};
+
+const consultationConfirmsDteNotFound = (consultation) => {
+  if (!consultation || consultation.accepted) return false;
+
+  const text = [
+    consultation.rejectionReason,
+    stringifyHaciendaResponse(consultation.response)
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toUpperCase();
+
+  return [
+    'NO EXISTE UN REGISTRO',
+    'NO EXISTE REGISTRO',
+    'NO SE ENCONTRARON REGISTROS',
+    'NO SE ENCONTRO REGISTRO',
+    'NO SE ENCONTRÓ REGISTRO',
+    'DTE NO ENCONTRADO',
+    'DOCUMENTO NO ENCONTRADO'
+  ].some((pattern) => text.includes(pattern));
+};
+
+const recoverAcceptedInvoiceFromConsultation = async ({ invoice, consultation, user }) => {
+  const processedAt = parseHaciendaProcessingDate(consultation.processingDate);
+
+  await invoice.update({
+    status: 'ACEPTADO',
+    validationStatus: 'VALIDADO',
+    validationErrorsJson: null,
+    transmittedAt: invoice.transmittedAt || new Date(),
+    acceptedAt: processedAt || invoice.acceptedAt || new Date(),
+    rejectedAt: null,
+    rejectionReason: null,
+    receptionSeal: consultation.receptionSeal,
+    mhResponseJson: {
+      modo: 'RECUPERACION_PREVIA_A_REINTENTO',
+      descripcion: 'Hacienda confirmó que el DTE ya había sido recibido; no se retransmitió.',
+      payload: consultation.payload,
+      response: consultation.response
+    },
+    mhObservationsJson: consultation.observations || null
+  });
+
+  return getInvoiceById(invoice.id, { user });
 };
 
 const attachReturnEventsToInvoices = async (invoices) => {
@@ -1897,13 +2009,10 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
     user: currentUser
   });
 
-  const historicalImport = await InvoiceImportArtifact.findOne({
-    attributes: ['id'],
-    where: {
-      companyId: invoice.companyId,
-      invoiceId: invoice.id
-    }
-  });
+  const historicalImport = await findHistoricalImportArtifactForInvoice(
+    invoice,
+    ['id', 'companyId', 'invoiceId', 'importedAt']
+  );
 
   if (historicalImport) {
     const error = new Error(
@@ -1923,6 +2032,38 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
     const error = new Error('Solo se pueden transmitir documentos en estado GENERADO, FIRMADO o RECHAZADO');
     error.statusCode = 400;
     throw error;
+  }
+
+  // Si un intento anterior dejó el DTE FIRMADO porque no hubo confirmación
+  // de recepción, antes de reenviar consultamos el estado oficial. Esto evita
+  // duplicados y sigue la política de recuperación indicada por Hacienda.
+  if (invoice.status === 'FIRMADO') {
+    const consultation = await dteTransmissionService.consultDteInHacienda({
+      invoice,
+      company: invoice.company
+    });
+
+    if (consultation.accepted && consultation.receptionSeal) {
+      return recoverAcceptedInvoiceFromConsultation({
+        invoice,
+        consultation,
+        user: currentUser
+      });
+    }
+
+    if (!consultationConfirmsDteNotFound(consultation)) {
+      const error = new Error(
+        consultation.rejectionReason ||
+        'No fue posible confirmar en Hacienda si el DTE fue recibido. No se retransmitirá hasta poder verificar su estado.'
+      );
+      error.statusCode = consultation.httpStatus && consultation.httpStatus < 500 ? 409 : 502;
+      error.mhResponse = consultation.response || null;
+      error.transmissionPendingVerification = true;
+      throw error;
+    }
+
+    // Hacienda confirmó que no existe registro para el código de generación.
+    // En ese caso es seguro continuar con un nuevo intento de recepción.
   }
 
   const dteJsonService = require('../dte/dte-json.service');
@@ -2170,13 +2311,10 @@ const synchronizeHistoricalInvoiceWithHacienda = async ({ id, user }) => {
 
   await validateInvoiceVisibility({ invoice, user: currentUser });
 
-  const historicalImport = await InvoiceImportArtifact.findOne({
-    attributes: ['id', 'importedAt', 'sourceJsonName'],
-    where: {
-      companyId: currentUser.company.id,
-      invoiceId: invoice.id
-    }
-  });
+  const historicalImport = await findHistoricalImportArtifactForInvoice(
+    invoice,
+    ['id', 'companyId', 'invoiceId', 'importedAt', 'sourceJsonName']
+  );
 
   if (!historicalImport) {
     const error = new Error('La sincronización manual está habilitada únicamente para DTE históricos importados');

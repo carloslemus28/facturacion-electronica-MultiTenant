@@ -17,15 +17,23 @@ let refreshPromise = null;
 let failedQueue = [];
 
 export const refreshSessionRequest = () => {
-  // El refresh token se rota en cada renovación. Si dos componentes intentan
-  // renovarlo al mismo tiempo, la segunda petición puede usar un token que la
-  // primera acaba de revocar y provocar una falsa "Sesión inválida o expirada".
-  // Compartir una sola promesa evita esa carrera dentro de la aplicación.
+  // El refresh token se rota en cada renovación. Compartimos una sola promesa
+  // dentro de esta pestaña y, cuando el navegador soporta Web Locks, también
+  // serializamos la renovación entre pestañas del mismo navegador. Así una
+  // pestaña no invalida el refresh token que otra acaba de utilizar.
   if (!refreshPromise) {
-    refreshPromise = api.post('/auth/refresh')
-      .finally(() => {
-        refreshPromise = null;
-      });
+    const executeRefresh = () => api.post('/auth/refresh');
+    const supportsCrossTabLock = typeof navigator !== 'undefined'
+      && navigator.locks
+      && typeof navigator.locks.request === 'function';
+
+    refreshPromise = (
+      supportsCrossTabLock
+        ? navigator.locks.request('facturacion-cym-auth-refresh', { mode: 'exclusive' }, executeRefresh)
+        : executeRefresh()
+    ).finally(() => {
+      refreshPromise = null;
+    });
   }
 
   return refreshPromise;
@@ -71,11 +79,21 @@ api.interceptors.response.use(
     }
 
     const isUnauthorized = error.response.status === 401;
+    const authErrorCode = String(error.response?.data?.code || '');
+    const isAccessTokenError = [
+      'ACCESS_TOKEN_MISSING',
+      'ACCESS_TOKEN_EXPIRED',
+      'ACCESS_TOKEN_INVALID'
+    ].includes(authErrorCode);
     const isAuthRoute = originalRequest.url?.includes('/auth/login')
       || originalRequest.url?.includes('/auth/refresh')
       || originalRequest.url?.includes('/auth/logout');
 
-    if (!isUnauthorized || originalRequest._retry || isAuthRoute) {
+    // No todo HTTP 401 significa que expiró la sesión de la aplicación. Una
+    // operación de negocio o una integración externa puede responder 401 sin
+    // que debamos cerrar la sesión del usuario. Solo renovamos cuando el
+    // middleware de autenticación identifica explícitamente el access token.
+    if (!isUnauthorized || !isAccessTokenError || originalRequest._retry || isAuthRoute) {
       return Promise.reject(error);
     }
 
