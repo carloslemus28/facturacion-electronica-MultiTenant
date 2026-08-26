@@ -1747,14 +1747,19 @@ const consultationConfirmsDteNotFound = (consultation) => {
   ]
     .filter(Boolean)
     .join(' ')
-    .toUpperCase();
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  if (text.includes('NO SE ENCONTRO') && text.includes('REGISTRO')) {
+    return true;
+  }
 
   return [
     'NO EXISTE UN REGISTRO',
     'NO EXISTE REGISTRO',
     'NO SE ENCONTRARON REGISTROS',
-    'NO SE ENCONTRO REGISTRO',
-    'NO SE ENCONTRÓ REGISTRO',
+    'NINGUN REGISTRO QUE COINCIDA',
     'DTE NO ENCONTRADO',
     'DOCUMENTO NO ENCONTRADO'
   ].some((pattern) => text.includes(pattern));
@@ -2442,6 +2447,52 @@ const synchronizeHistoricalInvoiceWithHacienda = async ({ id, user }) => {
   });
 
   if (!consultation.accepted || !consultation.receptionSeal) {
+    if (consultationConfirmsDteNotFound(consultation)) {
+      const previousMhResponse = invoice.mhResponseJson || null;
+      const currentStatus = String(invoice.status || '').toUpperCase();
+      const retransmittableStatuses = new Set(['GENERADO', 'FIRMADO', 'RECHAZADO']);
+      const releasedStatus = retransmittableStatuses.has(currentStatus)
+        ? currentStatus
+        : 'GENERADO';
+
+      await sequelize.transaction(async (transaction) => {
+        await invoice.update({
+          status: releasedStatus,
+          ...(releasedStatus === 'GENERADO' && currentStatus !== 'GENERADO'
+            ? {
+                signedJws: null,
+                signedAt: null,
+                transmittedAt: null,
+                acceptedAt: null,
+                rejectedAt: null,
+                receptionSeal: null
+              }
+            : {}),
+          mhResponseJson: {
+            modo: 'HISTORICO_NO_ENCONTRADO_LIBERADO_PARA_TRANSMISION',
+            sincronizadoEn: new Date().toISOString(),
+            descripcion: 'Hacienda confirmó que no existe un registro para este DTE. Se liberó para transmisión desde este sistema.',
+            importArtifactId: historicalImport.id,
+            sourceJsonName: historicalImport.sourceJsonName || null,
+            jsonRelativePath: historicalImport.jsonRelativePath || null,
+            payload: consultation.payload,
+            response: consultation.response,
+            respuestaAnterior: previousMhResponse
+          },
+          mhObservationsJson: consultation.observations || null
+        }, { transaction });
+
+        // Se elimina únicamente la asociación en base de datos que marcaba el
+        // documento como histórico. Los archivos importados permanecen en el
+        // almacenamiento para auditoría, pero ya no bloquean la transmisión.
+        await historicalImport.destroy({ transaction });
+      });
+
+      const releasedInvoice = await getInvoiceById(invoice.id, { user: currentUser });
+      releasedInvoice.setDataValue('historicalTransmissionReleased', true);
+      return releasedInvoice;
+    }
+
     const error = new Error(
       consultation.rejectionReason ||
       'Hacienda no confirmó que este DTE esté recibido y procesado. El documento no fue modificado ni retransmitido.'

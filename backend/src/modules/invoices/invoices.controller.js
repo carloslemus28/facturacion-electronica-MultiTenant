@@ -183,11 +183,18 @@ const synchronizeHistoricalWithHacienda = async (req, res, next) => {
       user: req.user
     });
 
+    const historicalTransmissionReleased = Boolean(
+      invoice?.getDataValue?.('historicalTransmissionReleased')
+      || invoice?.historicalTransmissionReleased
+    );
+
     res.status(200).json({
       ok: true,
-      message: invoice.receptionSeal
-        ? 'Hacienda confirmó el DTE. El documento quedó ACEPTADO y se recuperó el sello de recepción.'
-        : 'El DTE ya se encontraba sincronizado con Hacienda.',
+      message: historicalTransmissionReleased
+        ? 'Hacienda no encontró un registro coincidente. El DTE quedó liberado para Enviar a Hacienda por el Administrador o por un usuario autorizado.'
+        : invoice.receptionSeal
+          ? 'Hacienda confirmó el DTE. El documento quedó ACEPTADO y se recuperó el sello de recepción.'
+          : 'El DTE ya se encontraba sincronizado con Hacienda.',
       invoice
     });
   } catch (error) {
