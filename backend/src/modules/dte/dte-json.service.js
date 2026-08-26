@@ -1,7 +1,6 @@
 const fs = require('fs');
 
 const invoicesService = require('../invoices/invoices.service');
-const InvoiceImportArtifact = require('../imports/invoice-import-artifact.model');
 const { resolveStoredArtifactPath } = require('../imports/import-storage');
 const {
   normalizeDepartmentCatalogCode,
@@ -1622,12 +1621,7 @@ const getDteJsonByInvoiceId = async ({ id, user, type = 'document' }) => {
   });
 
   if (type !== 'invalidation') {
-    const importedArtifact = await InvoiceImportArtifact.findOne({
-      where: {
-        invoiceId: invoice.id,
-        companyId: invoice.companyId
-      }
-    });
+    const importedArtifact = await invoicesService.findHistoricalImportArtifactForInvoice(invoice);
 
     if (importedArtifact?.jsonRelativePath) {
       const storedJsonPath = resolveStoredArtifactPath(importedArtifact.jsonRelativePath);

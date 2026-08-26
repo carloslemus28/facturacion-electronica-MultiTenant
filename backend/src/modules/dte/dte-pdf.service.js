@@ -3,7 +3,6 @@ const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 
 const invoicesService = require('../invoices/invoices.service');
-const InvoiceImportArtifact = require('../imports/invoice-import-artifact.model');
 const { resolveStoredArtifactPath } = require('../imports/import-storage');
 const { amountToSpanishWords } = require('./dte-json.service');
 const { APP_NAME, APP_COMPANY_NAME, PDF_FOOTER_TEXT } = require('../../config/brand');
@@ -998,12 +997,7 @@ const getDtePdfByInvoiceId = async ({ id, user, type = 'document' }) => {
   });
 
   if (type !== 'invalidation') {
-    const importedArtifact = await InvoiceImportArtifact.findOne({
-      where: {
-        invoiceId: invoice.id,
-        companyId: invoice.companyId
-      }
-    });
+    const importedArtifact = await invoicesService.findHistoricalImportArtifactForInvoice(invoice);
 
     if (importedArtifact?.pdfRelativePath) {
       const storedPdfPath = resolveStoredArtifactPath(importedArtifact.pdfRelativePath);

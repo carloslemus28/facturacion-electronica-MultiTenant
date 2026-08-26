@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const { Op, literal } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 const { sequelize } = require('../../config/database');
@@ -18,6 +20,7 @@ const controlNumbersService = require('../dte/control-numbers.service');
 const invalidationDeadlineService = require('../dte/dte-invalidation-deadline.service');
 const DteEvent = require('../dte/dte-event.model');
 const InvoiceImportArtifact = require('../imports/invoice-import-artifact.model');
+const { resolveStoredArtifactPath } = require('../imports/import-storage');
 
 const DEFAULT_ALLOWED_DOCUMENT_TYPES = ['01', '03'];
 
@@ -1517,7 +1520,37 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
 
 const HISTORICAL_IMPORT_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
-const isHistoricalImportArtifactValidForInvoice = (artifact, invoice) => {
+const normalizeHistoricalIdentity = (value) => String(value || '').trim().toUpperCase();
+
+const getHistoricalArtifactFileIdentity = async (artifact) => {
+  if (!artifact?.jsonRelativePath) return null;
+
+  let storedJsonPath;
+  try {
+    storedJsonPath = resolveStoredArtifactPath(artifact.jsonRelativePath);
+  } catch {
+    return null;
+  }
+
+  try {
+    const rawJson = await fs.promises.readFile(storedJsonPath, 'utf8');
+    const json = JSON.parse(rawJson.replace(/^﻿/, ''));
+    const identificacion = json?.identificacion || {};
+
+    return {
+      controlNumber: normalizeHistoricalIdentity(identificacion.numeroControl),
+      generationCode: normalizeHistoricalIdentity(identificacion.codigoGeneracion),
+      documentTypeCode: normalizeHistoricalIdentity(identificacion.tipoDte)
+    };
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn(`[DTE histórico] No fue posible validar el artefacto ${artifact.id || ''}: ${error.message}`);
+    }
+    return null;
+  }
+};
+
+const isHistoricalImportArtifactValidForInvoice = async (artifact, invoice) => {
   if (!artifact || !invoice) return false;
 
   if (Number(artifact.companyId) !== Number(invoice.companyId)) return false;
@@ -1527,9 +1560,8 @@ const isHistoricalImportArtifactValidForInvoice = (artifact, invoice) => {
   const invoiceCreatedAt = invoice.createdAt ? new Date(invoice.createdAt).getTime() : null;
 
   // Un artefacto histórico real se crea junto con la factura importada. Si el
-  // artefacto es claramente anterior al registro actual, probablemente quedó
-  // huérfano de una limpieza/reset anterior y no debe convertir un DTE nuevo
-  // en "histórico".
+  // artefacto es claramente anterior al registro actual, quedó asociado a un
+  // invoice_id reutilizado y NO debe bloquear un DTE creado localmente.
   if (
     Number.isFinite(importedAt)
     && Number.isFinite(invoiceCreatedAt)
@@ -1538,21 +1570,93 @@ const isHistoricalImportArtifactValidForInvoice = (artifact, invoice) => {
     return false;
   }
 
-  return true;
+  const invoiceControlNumber = normalizeHistoricalIdentity(invoice.controlNumber);
+  const invoiceGenerationCode = normalizeHistoricalIdentity(invoice.generationCode);
+  const invoiceDocumentTypeCode = normalizeHistoricalIdentity(invoice.documentTypeCode);
+
+  // Los artefactos importados se almacenan con el número de control como nombre
+  // del JSON. Esta comprobación rápida evita que un artefacto huérfano de otro
+  // documento convierta una factura local en "DTE histórico".
+  const storedJsonBaseName = artifact.jsonRelativePath
+    ? normalizeHistoricalIdentity(path.basename(String(artifact.jsonRelativePath), path.extname(String(artifact.jsonRelativePath))))
+    : '';
+
+  if (storedJsonBaseName && invoiceControlNumber && storedJsonBaseName !== invoiceControlNumber) {
+    return false;
+  }
+
+  // Verificación definitiva: el JSON almacenado debe pertenecer al mismo número
+  // de control Y al mismo código de generación. El UUID evita falsos positivos
+  // incluso si un correlativo antiguo llegó a reutilizarse después de una limpieza.
+  const storedIdentity = await getHistoricalArtifactFileIdentity(artifact);
+  if (storedIdentity) {
+    if (
+      !storedIdentity.controlNumber
+      || !storedIdentity.generationCode
+      || storedIdentity.controlNumber !== invoiceControlNumber
+      || storedIdentity.generationCode !== invoiceGenerationCode
+      || (
+        storedIdentity.documentTypeCode
+        && invoiceDocumentTypeCode
+        && storedIdentity.documentTypeCode !== invoiceDocumentTypeCode
+      )
+    ) {
+      console.warn(
+        `[DTE histórico] Se ignoró artefacto huérfano ${artifact.id || ''} para factura ${invoice.id}; los identificadores no coinciden.`
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  // Si el volumen histórico no está disponible temporalmente, conservamos la
+  // protección únicamente cuando los metadatos restantes son coherentes. Esto
+  // evita retransmitir a ciegas un DTE verdaderamente importado.
+  const sourceJsonName = normalizeHistoricalIdentity(artifact.sourceJsonName);
+  if (
+    sourceJsonName
+    && (
+      (invoiceGenerationCode && sourceJsonName.includes(invoiceGenerationCode))
+      || (invoiceControlNumber && sourceJsonName.includes(invoiceControlNumber))
+    )
+  ) {
+    return true;
+  }
+
+  return Boolean(storedJsonBaseName && storedJsonBaseName === invoiceControlNumber);
 };
 
-const findHistoricalImportArtifactForInvoice = async (invoice, attributes = ['id', 'companyId', 'invoiceId', 'importedAt', 'sourceJsonName']) => {
+const findHistoricalImportArtifactForInvoice = async (invoice, attributes = [
+  'id',
+  'companyId',
+  'invoiceId',
+  'importedAt',
+  'sourceJsonName',
+  'jsonRelativePath',
+  'pdfRelativePath'
+]) => {
   if (!invoice?.id || !invoice?.companyId) return null;
 
+  const requiredAttributes = [...new Set([
+    ...attributes,
+    'id',
+    'companyId',
+    'invoiceId',
+    'importedAt',
+    'sourceJsonName',
+    'jsonRelativePath'
+  ])];
+
   const artifact = await InvoiceImportArtifact.findOne({
-    attributes,
+    attributes: requiredAttributes,
     where: {
       companyId: invoice.companyId,
       invoiceId: invoice.id
     }
   });
 
-  return isHistoricalImportArtifactValidForInvoice(artifact, invoice)
+  return await isHistoricalImportArtifactValidForInvoice(artifact, invoice)
     ? artifact
     : null;
 };
@@ -1573,7 +1677,7 @@ const attachHistoricalImportFlagsToInvoices = async (invoices) => {
   )];
 
   const artifacts = await InvoiceImportArtifact.findAll({
-    attributes: ['invoiceId', 'companyId', 'importedAt'],
+    attributes: ['id', 'invoiceId', 'companyId', 'importedAt', 'sourceJsonName', 'jsonRelativePath'],
     where: {
       invoiceId: {
         [Op.in]: invoiceIds
@@ -1597,7 +1701,7 @@ const attachHistoricalImportFlagsToInvoices = async (invoices) => {
 
     invoice.setDataValue(
       'isHistoricalImport',
-      isHistoricalImportArtifactValidForInvoice(artifact, invoice)
+      await isHistoricalImportArtifactValidForInvoice(artifact, invoice)
     );
   }
 
@@ -2011,7 +2115,7 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
 
   const historicalImport = await findHistoricalImportArtifactForInvoice(
     invoice,
-    ['id', 'companyId', 'invoiceId', 'importedAt']
+    ['id', 'companyId', 'invoiceId', 'importedAt', 'sourceJsonName', 'jsonRelativePath']
   );
 
   if (historicalImport) {
@@ -2313,7 +2417,7 @@ const synchronizeHistoricalInvoiceWithHacienda = async ({ id, user }) => {
 
   const historicalImport = await findHistoricalImportArtifactForInvoice(
     invoice,
-    ['id', 'companyId', 'invoiceId', 'importedAt', 'sourceJsonName']
+    ['id', 'companyId', 'invoiceId', 'importedAt', 'sourceJsonName', 'jsonRelativePath']
   );
 
   if (!historicalImport) {
@@ -2538,6 +2642,7 @@ const invalidateInvoiceReal = async ({ id, user, reason }) => {
 };
 
 module.exports = {
+  findHistoricalImportArtifactForInvoice,
   createGeneratedInvoice,
   updateGeneratedInvoice,
   listInvoices,
