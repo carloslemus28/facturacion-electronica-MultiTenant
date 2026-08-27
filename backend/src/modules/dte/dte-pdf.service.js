@@ -643,7 +643,7 @@ const getTableColumns = (invoice) => {
       { key: 'unitPrice', title: 'Valor unit.', w: 50, align: 'right' },
       { key: 'noSuj', title: 'No suj.', w: 44, align: 'right' },
       { key: 'exenta', title: 'Exenta', w: 44, align: 'right' },
-      { key: 'gravada', title: 'Afecta', w: 50, align: 'right' },
+      { key: 'gravada', title: 'Gravadas', w: 50, align: 'right' },
       ...(!isConsumerFinal
         ? [{ key: 'iva', title: 'IVA', w: 42, align: 'right' }]
         : []),
@@ -664,7 +664,7 @@ const getTableColumns = (invoice) => {
     { key: 'unitPrice', title: 'Valor unit.', w: 58, align: 'right' },
     { key: 'noSuj', title: 'No sujetas', w: 58, align: 'right' },
     { key: 'exenta', title: 'Exentas', w: 58, align: 'right' },
-    { key: 'gravada', title: 'Afectas', w: 62, align: 'right' },
+    { key: 'gravada', title: 'Gravadas', w: 62, align: 'right' },
     ...(!isConsumerFinal
       ? [{ key: 'iva', title: 'IVA', w: 38, align: 'right' }]
       : []),
