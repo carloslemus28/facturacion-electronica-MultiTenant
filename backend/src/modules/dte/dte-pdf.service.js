@@ -93,6 +93,51 @@ const formatIdentifier = (value, chunkSize = 22) => {
   return chunks.join('\n');
 };
 
+const formatPdfAddress = (addressComplement, districtName, departmentName) => {
+  const parts = [addressComplement, districtName, departmentName]
+    .map((value) => safe(value))
+    .filter(Boolean);
+
+  return parts.filter((value, index) => {
+    const normalized = value.toLocaleLowerCase('es-SV');
+    return parts.findIndex((candidate) => candidate.toLocaleLowerCase('es-SV') === normalized) === index;
+  }).join(', ');
+};
+
+const drawStackedIdentifier = (doc, label, value, x, y, width, options = {}) => {
+  const text = safe(value, '-');
+  const labelSize = options.labelSize || 5.5;
+  const maxSize = options.valueSize || 4.8;
+  const minSize = options.minValueSize || 3.25;
+  const availableWidth = Math.max(10, width - 2);
+
+  drawText(doc, `${label}:`, x, y, {
+    width,
+    size: labelSize,
+    bold: true,
+    ellipsis: false
+  });
+
+  doc.font(options.valueBold ? 'Helvetica-Bold' : 'Helvetica');
+
+  let valueSize = maxSize;
+  doc.fontSize(valueSize);
+
+  while (valueSize > minSize && doc.widthOfString(text) > availableWidth) {
+    valueSize = Math.max(minSize, valueSize - 0.15);
+    doc.fontSize(valueSize);
+  }
+
+  doc
+    .fillColor(options.color || COLORS.dark)
+    .text(text, x, y + (options.labelGap || 7), {
+      width,
+      height: options.height || 7,
+      lineBreak: false,
+      ellipsis: false
+    });
+};
+
 const getPdfBuffer = (doc) => {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -238,8 +283,8 @@ const getDteVersion = (documentTypeCode) => {
     '01': 1,
     '03': 3,
     '05': 3,
-    '11': 1,
-    '14': 1
+    '11': 3,
+    '14': 2
   };
 
   return versions[documentTypeCode] || 1;
@@ -400,7 +445,7 @@ const drawHeader = async (doc, invoice) => {
   const x = PAGE.margin;
   const y = PAGE.margin;
 
-  drawBox(doc, x, y, PAGE.contentWidth, 152);
+  drawBox(doc, x, y, PAGE.contentWidth, 170);
 
 const shouldDrawLogo = company.useLogoInPdf !== false && Boolean(company.logoDataUrl);
 const logoBuffer = shouldDrawLogo ? imageBufferFromDataUrl(company.logoDataUrl) : null;
@@ -419,7 +464,7 @@ if (logoBuffer) {
 const issuerInfoX = logoBuffer ? x + 146 : x + 10;
 const issuerInfoWidth = logoBuffer ? 168 : 304;
 
-drawText(doc, company.commercialName || company.legalName, issuerInfoX, y + 12, {
+drawText(doc, company.legalName, issuerInfoX, y + 12, {
   width: issuerInfoWidth,
   size: 9.6,
   bold: true,
@@ -428,7 +473,12 @@ drawText(doc, company.commercialName || company.legalName, issuerInfoX, y + 12, 
   lineGap: 1
 });
 
-drawText(doc, company.legalName, issuerInfoX, y + 43, {
+const secondaryCommercialName = safe(company.commercialName)
+  && safe(company.commercialName).toLocaleLowerCase('es-SV') !== safe(company.legalName).toLocaleLowerCase('es-SV')
+  ? company.commercialName
+  : '';
+
+drawText(doc, secondaryCommercialName, issuerInfoX, y + 43, {
   width: issuerInfoWidth,
   size: 6.8,
   height: 16,
@@ -442,15 +492,23 @@ drawText(doc, company.legalName, issuerInfoX, y + 43, {
   });
   drawLabelValue(doc, 'NIT', company.nit, x + 10, y + 94, 32, 110, { size: 6.4 });
   drawLabelValue(doc, 'NRC', company.nrc, x + 145, y + 94, 32, 100, { size: 6.4 });
-  drawLabelValue(doc, 'Dirección', establishment.addressComplement || company.addressComplement, x + 10, y + 110, 52, 252, {
+  const issuerAddress = formatPdfAddress(
+    establishment.addressComplement || company.addressComplement,
+    establishment.districtName || company.districtName,
+    establishment.departmentName || company.departmentName
+  );
+
+  drawLabelValue(doc, 'Dirección', issuerAddress, x + 10, y + 108, 52, 252, {
+    size: 6.2,
+    height: 28,
+    ellipsis: false,
+    lineGap: 0.4
+  });
+  drawLabelValue(doc, 'Correo', company.email, x + 10, y + 143, 42, 145, {
     size: 6.4,
     ellipsis: false
   });
-  drawLabelValue(doc, 'Correo', company.email, x + 10, y + 126, 42, 145, {
-    size: 6.4,
-    ellipsis: false
-  });
-  drawLabelValue(doc, 'Tel.', company.phone, x + 190, y + 126, 24, 90, { size: 6.4 });
+  drawLabelValue(doc, 'Tel.', company.phone, x + 190, y + 143, 24, 90, { size: 6.4 });
 
   const qrUrl = buildPublicQueryUrl({
     invoice,
@@ -502,48 +560,51 @@ drawText(doc, company.legalName, issuerInfoX, y + 43, {
     ellipsis: false
   });
 
-  drawStackedLabelValue(
+  drawStackedIdentifier(
     doc,
     'Código generación',
-    formatIdentifier(invoice.generationCode, 22),
+    invoice.generationCode,
     x + 416,
     y + 52,
     138,
     {
       labelSize: 5.5,
-      valueSize: 4.8,
+      valueSize: 4.6,
+      minValueSize: 3.25,
       valueBold: true,
-      height: 16
+      height: 7
     }
   );
 
-  drawStackedLabelValue(
+  drawStackedIdentifier(
     doc,
     'Número control',
-    formatIdentifier(invoice.controlNumber, 24),
+    invoice.controlNumber,
     x + 416,
     y + 76,
     138,
     {
       labelSize: 5.5,
-      valueSize: 4.8,
+      valueSize: 4.6,
+      minValueSize: 3.25,
       valueBold: true,
-      height: 16
+      height: 7
     }
   );
 
-  drawStackedLabelValue(
+  drawStackedIdentifier(
     doc,
     'Sello recepción',
-    formatIdentifier(invoice.receptionSeal || 'Pendiente', 22),
+    invoice.receptionSeal || 'Pendiente',
     x + 416,
     y + 100,
     138,
     {
       labelSize: 5.5,
-      valueSize: 4.65,
+      valueSize: 4.5,
+      minValueSize: 3.1,
       valueBold: Boolean(invoice.receptionSeal),
-      height: 17
+      height: 7
     }
   );
 
@@ -551,7 +612,7 @@ drawText(doc, company.legalName, issuerInfoX, y + 43, {
   drawLabelValue(doc, 'Versión', getDteVersion(invoice.documentTypeCode), x + 486, y + 128, 36, 22, { size: 5.7 });
   drawLabelValue(doc, 'Ambiente', getEnvironmentName(company.environment), x + 416, y + 140, 44, 70, { size: 5.7 });
 
-  return y + 162;
+  return y + 180;
 };
 
 const drawTechnicalInfo = (doc, invoice, y) => {
@@ -570,7 +631,7 @@ const drawTechnicalInfo = (doc, invoice, y) => {
 const drawReceiverAndSaleInfo = (doc, invoice, y) => {
   const customer = invoice.customer || {};
 
-  drawBox(doc, PAGE.margin, y, PAGE.contentWidth, 106);
+  drawBox(doc, PAGE.margin, y, PAGE.contentWidth, 120);
 
   drawText(doc, 'DATOS DEL RECEPTOR', PAGE.margin + 10, y + 8, {
     width: 260,
@@ -590,12 +651,19 @@ const drawReceiverAndSaleInfo = (doc, invoice, y) => {
     height: 15,
     ellipsis: false
   });
-  drawLabelValue(doc, 'Dirección', customer.addressComplement, PAGE.margin + 10, y + 74, 46, 245, {
-    size: 6.3,
-    height: 15,
-    ellipsis: false
+  const receiverAddress = formatPdfAddress(
+    customer.addressComplement,
+    customer.districtName,
+    customer.departmentName
+  );
+
+  drawLabelValue(doc, 'Dirección', receiverAddress, PAGE.margin + 10, y + 74, 46, 245, {
+    size: 6.2,
+    height: 28,
+    ellipsis: false,
+    lineGap: 0.4
   });
-  drawLabelValue(doc, 'Correo', customer.email, PAGE.margin + 10, y + 91, 46, 150, {
+  drawLabelValue(doc, 'Correo', customer.email, PAGE.margin + 10, y + 106, 46, 150, {
     size: 6.3,
     ellipsis: false
   });
@@ -618,14 +686,14 @@ const drawReceiverAndSaleInfo = (doc, invoice, y) => {
   });
 
   if (invoice.notes) {
-    drawLabelValue(doc, 'Observación', invoice.notes, PAGE.margin + 310, y + 91, 62, 165, {
+    drawLabelValue(doc, 'Observación', invoice.notes, PAGE.margin + 310, y + 103, 62, 165, {
       size: 6.2,
       height: 13,
       ellipsis: false
     });
   }
 
-  return y + 116;
+  return y + 130;
 };
 
 const getTableColumns = (invoice) => {
@@ -817,7 +885,7 @@ const drawTotals = (doc, invoice, y) => {
   const rows = [
     ['Ventas no sujetas', invoice.noSuj],
     ['Ventas exentas', invoice.exenta],
-    ['Ventas afectas', invoice.gravada],
+    ['Ventas gravadas', invoice.gravada],
     [
       'SUMAS',
       Number(invoice.noSuj || 0)
@@ -841,7 +909,7 @@ const drawTotals = (doc, invoice, y) => {
   let rowY = y + 8;
 
   rows.forEach(([label, value]) => {
-    if (Number(value || 0) === 0 && !['Ventas no sujetas', 'Ventas exentas', 'Ventas afectas', 'SUMAS', 'Sub-Total', 'Venta Total'].includes(label)) {
+    if (Number(value || 0) === 0 && !['Ventas no sujetas', 'Ventas exentas', 'Ventas gravadas', 'SUMAS', 'Sub-Total', 'Venta Total'].includes(label)) {
       return;
     }
 
