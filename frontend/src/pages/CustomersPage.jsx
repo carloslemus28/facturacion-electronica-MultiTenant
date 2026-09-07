@@ -31,6 +31,7 @@ import SearchableSelect from '../components/SearchableSelect';
 import { economicActivities } from '../data/economicActivities';
 import { elSalvadorDepartments } from '../data/elSalvadorDepartments';
 import { elSalvadorLocations } from '../data/elSalvadorLocations';
+import { getHaciendaCountryOption, haciendaCountryOptions } from '../data/haciendaCountries';
 
 const getCountryName = (countryCode) => {
   try {
@@ -59,6 +60,15 @@ const phoneCountryOptions = getCountries()
     };
   })
   .sort((a, b) => a.countryName.localeCompare(b.countryName, 'es'));
+
+const normalizeHaciendaCountryCode = (value) => {
+  const normalized = String(value || '').trim().toUpperCase();
+
+  if (!normalized) return '';
+  if (normalized === 'SLV' || normalized === 'EL SALVADOR') return 'SV';
+
+  return getHaciendaCountryOption(normalized)?.code || normalized;
+};
 
 const initialForm = {
   documentType: 'SIN_DOCUMENTO',
@@ -356,11 +366,7 @@ const handlePhoneCountryChange = (country) => {
       return 'Ingrese el nombre o razón social del cliente';
     }
 
-    if (!form.email.trim()) {
-      return 'Ingrese el correo electrónico del cliente';
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+    if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       return 'Ingrese un correo electrónico válido';
     }
 
@@ -398,6 +404,12 @@ const handlePhoneCountryChange = (country) => {
 
     if (form.nrc.trim() && onlyDigits(form.nrc).length > 8) {
       return 'El NRC debe contener exactamente 8 dígitos';
+    }
+
+    const normalizedCountryCode = normalizeHaciendaCountryCode(form.countryCode);
+
+    if (normalizedCountryCode && !getHaciendaCountryOption(normalizedCountryCode)) {
+      return 'Seleccione un país válido del catálogo CAT-020 de Hacienda';
     }
 
     return null;
@@ -449,7 +461,7 @@ const handlePhoneCountryChange = (country) => {
       municipalityCode: form.municipalityCode,
       municipalityName: form.municipalityName,
       addressComplement: form.addressComplement.trim(),
-      countryCode: form.countryCode.trim(),
+      countryCode: normalizeHaciendaCountryCode(form.countryCode),
       isActive: form.isActive
     };
   };
@@ -601,7 +613,7 @@ const handlePhoneCountryChange = (country) => {
               Clientes / Receptores
             </h2>
             <p className="text-gray-600 mt-1">
-              Registre clientes para emisión de DTE. Nombre y correo son obligatorios; el teléfono es opcional.
+              Registre clientes para emisión de DTE. El nombre es obligatorio; correo y teléfono son opcionales.
             </p>
           </div>
         </div>
@@ -647,7 +659,7 @@ const handlePhoneCountryChange = (country) => {
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 mb-1">
-                  Correo <span className="text-red-600">*</span>
+                  Correo
                 </label>
                 <input
                   name="email"
@@ -902,19 +914,22 @@ const handlePhoneCountryChange = (country) => {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm text-gray-700 mb-1">
-                Código país
-              </label>
-              <input
-                name="countryCode"
-                value={form.countryCode}
-                onChange={handleChange}
-                maxLength={3}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 uppercase"
-                placeholder="SV, US, GT..."
-              />
-            </div>
+            <SearchableSelect
+              label="País"
+              value={normalizeHaciendaCountryCode(form.countryCode)}
+              options={haciendaCountryOptions}
+              onChange={(option) => {
+                setForm((prev) => ({
+                  ...prev,
+                  countryCode: option?.code || ''
+                }));
+              }}
+              placeholder="Seleccione el país"
+              searchPlaceholder="Buscar país"
+              getOptionValue={(option) => option.code}
+              getOptionLabel={(option) => option.name}
+              getOptionDescription={(option) => `Código MH: ${option.code}`}
+            />
 
             <label className="inline-flex items-center gap-2 text-sm text-gray-700">
               <input

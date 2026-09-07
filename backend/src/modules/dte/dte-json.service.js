@@ -7,6 +7,7 @@ const {
   normalizeMunicipalityCatalogCode
 } = require('../../utils/el-salvador-catalogs');
 const { normalizeUnitOfMeasureCode, normalizeFiscalPrecinctCode } = require('../../utils/hacienda-catalogs');
+const { normalizeCountryCode: normalizeCat020CountryCode, getCountryName: getCat020CountryName } = require('../../utils/hacienda-countries');
 
 const DOCUMENT_TYPE_CODES = {
   FACTURA: '01',
@@ -106,6 +107,55 @@ const getContactEmail = (...values) => {
   return null;
 };
 
+const schemaString = (value, { field, min = 1, max } = {}) => {
+  const text = cleanString(value);
+
+  if (!text) {
+    const error = new Error(`${field || 'Campo'} es obligatorio según el esquema vigente de Hacienda`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (text.length < min || (max && text.length > max)) {
+    const range = max ? `entre ${min} y ${max}` : `al menos ${min}`;
+    const error = new Error(`${field || 'Campo'} debe contener ${range} caracteres según el esquema vigente de Hacienda`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return text;
+};
+
+const getExportCountryCode = (customer = {}) => {
+  let code;
+
+  try {
+    code = normalizeCat020CountryCode(customer.countryCode || customer.codPais, { allowEmpty: false });
+  } catch (error) {
+    error.message = 'La Factura de Exportación requiere seleccionar un país extranjero válido del CAT-020 de Hacienda.';
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (code === 'SV') {
+    const error = new Error('La Factura de Exportación requiere seleccionar un país extranjero distinto de El Salvador.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return code;
+};
+
+const getExportCountryName = (customer = {}, countryCode) => {
+  const countryName = getCat020CountryName(countryCode);
+
+  return schemaString(countryName, {
+    field: 'Nombre de país del receptor de exportación',
+    min: 3,
+    max: 50
+  });
+};
+
 const cleanAddressComplement = (value) => {
   const text = cleanString(value);
 
@@ -160,10 +210,11 @@ const formatTime = (value) => {
 };
 
 const getDteVersion = (documentTypeCode) => {
+  // Versiones vigentes según JSON Schemas publicados por MH el 11/08/2026.
   const versions = {
-    '01': 1,
-    '03': 3,
-    '05': 3,
+    '01': 2,
+    '03': 4,
+    '05': 4,
     '11': 3,
     '14': 2
   };
@@ -252,7 +303,7 @@ const formatReceiverDocumentNumber = (documentType, documentNumber) => {
 };
 
 const getInvalidationEventVersion = () => {
-  return Number(process.env.MH_INVALIDACION_EVENT_VERSION || 2);
+  return Number(process.env.MH_INVALIDACION_EVENT_VERSION || 3);
 };
 
 const getInvalidationTypeCode = () => {
@@ -566,17 +617,19 @@ const buildIdentification = (invoice) => {
   tipoMoneda: 'USD'
 };
 
-  if (isExportInvoice(documentTypeCode)) {
-    return {
-      ...base,
-      motivoContin: cleanString(invoice.motivoContin)
-    };
-  }
-
-  return {
+  const identification = {
     ...base,
     motivoContin: cleanString(invoice.motivoContin)
   };
+
+  // V4 de NCE exige el atributo aun cuando no aplique una fusión societaria.
+  if (isCreditNoteDocument(documentTypeCode)) {
+    identification.fusion = cleanDigits(
+      invoice.fusion || invoice.fusionNit || invoice.nitFusionado
+    ) || null;
+  }
+
+  return identification;
 };
 
 const buildIssuer = (invoice) => {
@@ -592,7 +645,6 @@ const buildIssuer = (invoice) => {
     codActividad: cleanString(company.economicActivityCode),
     descActividad: cleanString(company.economicActivityName),
     nombreComercial: cleanString(company.commercialName),
-    tipoEstablecimiento: getEstablishmentTypeCode(establishment.establishmentType || company.establishmentType),
     direccion: {
       departamento: normalizeDepartmentCatalogCode(
         establishment.departmentCode || company.departmentCode
@@ -603,36 +655,26 @@ const buildIssuer = (invoice) => {
         municipalityCode: establishment.municipalityCode || company.municipalityCode,
         municipalityName: establishment.municipalityName || company.municipalityName
       }),
+      distrito: cleanString(establishment.districtName || company.districtName) || '',
       complemento: cleanAddressComplement(establishment.addressComplement || company.addressComplement)
     },
     telefono: cleanPhone(company.phone),
     correo: cleanString(company.email),
-    codEstableMH: cleanString(establishment.establishmentCode || company.establishmentCode || 'M001'),
     codEstable: cleanString(establishment.establishmentCode || company.establishmentCode || 'M001'),
-    codPuntoVentaMH: cleanString(pointOfSale.code || company.pointOfSaleCode || 'P001'),
     codPuntoVenta: cleanString(pointOfSale.code || company.pointOfSaleCode || 'P001')
   };
 
   if (isCreditNoteDocument(documentTypeCode)) {
-    delete issuer.codEstableMH;
+    // NCE V4 ya no admite códigos de establecimiento dentro de emisor.
     delete issuer.codEstable;
-    delete issuer.codPuntoVentaMH;
     delete issuer.codPuntoVenta;
   }
 
   if (isExcludedSubjectInvoice(documentTypeCode)) {
     delete issuer.nombreComercial;
-    delete issuer.tipoEstablecimiento;
-    delete issuer.codEstableMH;
-    delete issuer.codPuntoVentaMH;
-    issuer.direccion.distrito = cleanString(establishment.districtName || company.districtName) || '';
   }
 
   if (isExportInvoice(documentTypeCode)) {
-    delete issuer.tipoEstablecimiento;
-    delete issuer.codEstableMH;
-    delete issuer.codPuntoVentaMH;
-    issuer.direccion.distrito = cleanString(establishment.districtName || company.districtName) || '';
     issuer.tipoItemExpor = getExportItemType(invoice);
     issuer.recintoFiscal = getFiscalPrecinctCode(invoice.recintoFiscal || company.recintoFiscal);
     issuer.tipoRegimen = cleanString(invoice.tipoRegimen || company.tipoRegimen) || null;
@@ -752,10 +794,11 @@ const buildConsumerFinalReceiver = (customer, company = {}) => {
         municipalityCode: customer.municipalityCode,
         municipalityName: customer.municipalityName
       }),
+      distrito: cleanString(customer.districtName) || '',
       complemento: cleanAddressComplement(customer.addressComplement)
     },
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
-    correo: getContactEmail(customer.email, customer.secondaryEmail, company.email, process.env.SMTP_FROM_EMAIL)
+    correo: getContactEmail(customer.email, customer.secondaryEmail)
   };
 };
 
@@ -779,10 +822,40 @@ const buildTaxpayerReceiver = (customer, company = {}) => {
         municipalityCode: customer.municipalityCode,
         municipalityName: customer.municipalityName
       }),
+      distrito: cleanString(customer.districtName) || '',
       complemento: cleanAddressComplement(customer.addressComplement)
     },
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
-    correo: getContactEmail(customer.email, customer.secondaryEmail, company.email, process.env.SMTP_FROM_EMAIL)
+    correo: getContactEmail(customer.email, customer.secondaryEmail)
+  };
+};
+
+const buildAdjustmentNoteReceiver = (customer, company = {}) => {
+  if (!customer?.id) {
+    return null;
+  }
+
+  return {
+    tipoDocumento: getDocumentTypeForReceiver(customer.documentType),
+    numDocumento: formatReceiverDocumentNumber(customer.documentType, customer.documentNumber),
+    nrc: cleanDigits(customer.nrc),
+    nombre: cleanString(customer.name),
+    codActividad: cleanString(customer.economicActivityCode),
+    descActividad: cleanString(customer.economicActivityName),
+    nombreComercial: cleanString(customer.commercialName || customer.name),
+    direccion: {
+      departamento: normalizeDepartmentCatalogCode(customer.departmentCode),
+      municipio: normalizeMunicipalityCatalogCode({
+        departmentCode: customer.departmentCode,
+        districtName: customer.districtName,
+        municipalityCode: customer.municipalityCode,
+        municipalityName: customer.municipalityName
+      }),
+      distrito: cleanString(customer.districtName) || '',
+      complemento: cleanAddressComplement(customer.addressComplement)
+    },
+    telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
+    correo: getContactEmail(customer.email, customer.secondaryEmail)
   };
 };
 
@@ -794,10 +867,12 @@ const buildExportReceiver = (invoice) => {
     return null;
   }
 
+  const countryCode = getExportCountryCode(customer);
+
   return {
     nombre: cleanString(customer.name),
-    codPais: cleanString(customer.countryCode || customer.codPais || '9300'),
-    nombrePais: cleanString(customer.countryName || customer.country || customer.nombrePais || 'EL SALVADOR'),
+    codPais: countryCode,
+    nombrePais: getExportCountryName(customer, countryCode),
     complemento: cleanAddressComplement(customer.addressComplement),
     tipoDocumento: getDocumentTypeForReceiver(customer.documentType),
     numDocumento: formatReceiverDocumentNumber(
@@ -808,7 +883,7 @@ const buildExportReceiver = (invoice) => {
     tipoPersona: getExportPersonType(customer),
     descActividad: cleanString(customer.economicActivityName || 'Actividad económica del receptor'),
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone) || '00000000',
-    correo: getContactEmail(customer.email, customer.secondaryEmail, company.email, process.env.SMTP_FROM_EMAIL) || 'facturacion@correo.com'
+    correo: getContactEmail(customer.email, customer.secondaryEmail)
   };
 };
 
@@ -838,7 +913,7 @@ const buildExcludedSubject = (customer, company = {}) => {
       complemento: cleanAddressComplement(customer.addressComplement)
     },
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
-    correo: getContactEmail(customer.email, customer.secondaryEmail, company.email, process.env.SMTP_FROM_EMAIL)
+    correo: getContactEmail(customer.email, customer.secondaryEmail)
   };
 };
 
@@ -846,6 +921,10 @@ const buildReceiver = (invoice) => {
   const documentTypeCode = String(invoice.documentTypeCode || '');
   const customer = invoice.customer || {};
   const company = invoice.company || {};
+
+  if (isCreditNoteDocument(documentTypeCode)) {
+    return buildAdjustmentNoteReceiver(customer, company);
+  }
 
   if (isTaxpayerReceiverDocument(documentTypeCode)) {
     return buildTaxpayerReceiver(customer, company);
@@ -934,7 +1013,11 @@ const buildCreditNoteBodyItem = ({ invoice, item, index }) => {
     ventaNoSuj: round2(item.noSuj),
     ventaExenta: round2(item.exenta),
     ventaGravada: round2(item.gravada),
-    tributos: hasIva ? [IVA_TRIBUTE_CODE] : null
+    tributos: hasIva ? [IVA_TRIBUTE_CODE] : null,
+    noGravado: round2(item.noGravado || 0),
+    ivaPerci: round2(item.ivaPerci || 0),
+    totalIva: getOfficialItemIva(invoice.documentTypeCode, item),
+    ivaRete: round2(item.ivaRete || item.retention1 || 0)
   };
 };
 
@@ -1073,8 +1156,7 @@ const buildConsumerFinalSummary = (invoice) => {
     totalDescu: 0,
     tributos: null,
     subTotal,
-    ivaRete1: retencion,
-    reteRenta: 0,
+    ivaRete: retencion,
     montoTotalOperacion,
     totalNoGravado: 0,
     totalPagar,
@@ -1083,7 +1165,8 @@ const buildConsumerFinalSummary = (invoice) => {
     saldoFavor: 0,
     condicionOperacion: operationConditionCode,
     pagos: buildPayments(invoice, totalPagar),
-    numPagoElectronico: null
+    numPagoElectronico: null,
+    observaciones: cleanString(invoice.notes)
   };
 };
 
@@ -1096,15 +1179,13 @@ const buildTaxpayerSummary = (invoice) => {
   const subTotalVentas = round2(totalNoSuj + totalExenta + totalGravada);
   const subTotal = round2(invoice.subtotal);
   const totalIva = getOfficialTotalIva(invoice);
-  const ivaPerci1 = 0;
-  const ivaRete1 = round2(invoice.retention1);
-  const reteRenta = 0;
+  const ivaPerci = 0;
+  const ivaRete = round2(invoice.retention1);
 
-  // En CCF y demás documentos con IVA separado, montoTotalOperacion representa
-  // el valor bruto de la operación antes de retenciones. ivaRete1/reteRenta
-  // reducen únicamente el totalPagar.
-  const montoTotalOperacion = round2(subTotal + totalIva + ivaPerci1);
-  const totalPagar = round2(invoice.total || (montoTotalOperacion - ivaRete1 - reteRenta));
+  // CCF V4 usa los nombres ivaPerci/ivaRete y mantiene la retención
+  // separada del monto bruto de la operación.
+  const montoTotalOperacion = round2(subTotal + totalIva + ivaPerci);
+  const totalPagar = round2(invoice.total || (montoTotalOperacion - ivaRete));
 
   return {
     totalNoSuj,
@@ -1118,9 +1199,8 @@ const buildTaxpayerSummary = (invoice) => {
     totalDescu: 0,
     tributos: buildIvaTributes(invoice),
     subTotal,
-    ivaPerci1,
-    ivaRete1,
-    reteRenta,
+    ivaPerci,
+    ivaRete,
     montoTotalOperacion,
     totalNoGravado: 0,
     totalPagar,
@@ -1128,7 +1208,8 @@ const buildTaxpayerSummary = (invoice) => {
     saldoFavor: 0,
     condicionOperacion: operationConditionCode,
     pagos: buildPayments(invoice, totalPagar),
-    numPagoElectronico: null
+    numPagoElectronico: null,
+    observaciones: cleanString(invoice.notes)
   };
 };
 
@@ -1139,33 +1220,30 @@ const buildCreditNoteSummary = (invoice) => {
   const totalExenta = round2(invoice.exenta);
   const totalGravada = round2(invoice.gravada);
   const subTotalVentas = round2(totalNoSuj + totalExenta + totalGravada);
-  const subTotal = round2(invoice.subtotal);
   const totalIva = getOfficialTotalIva(invoice);
-  const ivaPerci1 = 0;
-  const ivaRete1 = round2(invoice.retention1);
-  const reteRenta = 0;
-
-  // La retención se declara en ivaRete1, pero no reduce el monto total
-  // de la operación de la Nota de Crédito.
-  const montoTotalOperacion = round2(subTotal + totalIva + ivaPerci1);
+  const ivaPerci = round2(invoice.ivaPerci || 0);
+  const ivaRete = round2(invoice.retention1);
+  const totalNoGravado = round2(invoice.totalNoGravado || 0);
+  const montoTotalOperacion = round2(subTotalVentas + totalIva + ivaPerci + totalNoGravado);
+  const totalPagar = round2(invoice.total || (montoTotalOperacion - ivaRete));
 
   return {
     totalNoSuj,
     totalExenta,
     totalGravada,
     subTotalVentas,
-    descuNoSuj: 0,
-    descuExenta: 0,
-    descuGravada: 0,
     totalDescu: 0,
     tributos: buildIvaTributes(invoice),
-    subTotal,
-    ivaPerci1,
-    ivaRete1,
-    reteRenta,
     montoTotalOperacion,
-    totalLetras: amountToSpanishWords(montoTotalOperacion),
-    condicionOperacion: operationConditionCode
+    ivaPerci,
+    totalIva,
+    ivaRete,
+    totalNoGravado,
+    totalPagar,
+    totalLetras: amountToSpanishWords(totalPagar),
+    condicionOperacion: operationConditionCode,
+    observaciones: cleanString(invoice.notes),
+    codigoRetencionMH: cleanString(invoice.codigoRetencionMH || invoice.retentionCodeMH) || null
   };
 };
 
@@ -1360,7 +1438,6 @@ const buildStandardDteJson = (invoice) => {
       ventaTercero: null,
       cuerpoDocumento: buildBody(invoice),
       resumen: buildSummary(invoice),
-      extension: buildExtension(invoice),
       apendice: buildAppendix(invoice)
     };
   }
@@ -1391,7 +1468,6 @@ const buildStandardDteJson = (invoice) => {
     apendice: buildAppendix(invoice)
   };
 
-  dte.extension = buildExtension(invoice);
   dte.ventaTercero = null;
 
   return dte;
@@ -1483,14 +1559,13 @@ const buildInvalidationJson = (invoice) => {
       version: getInvalidationEventVersion(),
       ambiente: getEnvironmentCode(company.environment),
       codigoGeneracion: cleanString(invoice.invalidationGenerationCode),
-      fecAnula: formatDate(invalidationDate),
-      horAnula: formatTime(invalidationDate)
+      fecEmi: formatDate(invalidationDate),
+      horEmi: formatTime(invalidationDate),
+      fusion: cleanDigits(invoice.fusion || invoice.fusionNit || invoice.nitFusionado) || null
     },
     emisor: {
       nit: cleanDigits(company.nit),
       nombre: cleanString(company.legalName),
-      tipoEstablecimiento: getEstablishmentTypeCode(establishment.establishmentType || company.establishmentType),
-      nomEstablecimiento: cleanString(establishment.name || company.commercialName || company.legalName),
       codEstableMH: cleanString(establishment.establishmentCode || company.establishmentCode || null),
       codEstable: cleanString(establishment.establishmentCode || company.establishmentCode || null),
       codPuntoVentaMH: cleanString(pointOfSale.code || company.pointOfSaleCode || null),
@@ -1504,7 +1579,6 @@ const buildInvalidationJson = (invoice) => {
       selloRecibido: cleanString(invoice.receptionSeal),
       numeroControl: cleanString(invoice.controlNumber),
       fecEmi: formatDate(invoice.issuedAt),
-      montoIva: getOfficialTotalIva(invoice),
       codigoGeneracionR: null,
       tipoDocumento: customerDocumentType,
       numDocumento: customerDocumentNumber,

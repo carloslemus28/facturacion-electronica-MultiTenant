@@ -250,7 +250,7 @@ const buildInvalidationPayload = ({ invoice, officialInvalidationJson, signedJws
   return {
     ambiente: identificacion.ambiente,
     idEnvio: Number(invoice.id),
-    version: Number(process.env.MH_INVALIDACION_EVENT_VERSION || identificacion.version || 2),
+    version: Number(process.env.MH_INVALIDACION_EVENT_VERSION || identificacion.version || 3),
     documento: signedJws
   };
 };

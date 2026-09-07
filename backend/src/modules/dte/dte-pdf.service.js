@@ -280,9 +280,9 @@ const drawStackedLabelValue = (doc, label, value, x, y, width, options = {}) => 
 
 const getDteVersion = (documentTypeCode) => {
   const versions = {
-    '01': 1,
-    '03': 3,
-    '05': 3,
+    '01': 2,
+    '03': 4,
+    '05': 4,
     '11': 3,
     '14': 2
   };

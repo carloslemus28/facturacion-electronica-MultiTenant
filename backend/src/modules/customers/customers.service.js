@@ -296,13 +296,9 @@ const validateCustomerData = (data) => {
     throw error;
   }
 
-  if (!data.email || !data.email.trim()) {
-    const error = new Error('El correo electrónico del cliente es obligatorio');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!validateEmail(data.email.trim())) {
+  // Hacienda no permite condicionar una venta de consumidor final a que el
+  // cliente entregue correo electrónico. Los schemas vigentes admiten null.
+  if (data.email && String(data.email).trim() && !validateEmail(String(data.email).trim())) {
     const error = new Error('Ingrese un correo electrónico válido');
     error.statusCode = 400;
     throw error;
