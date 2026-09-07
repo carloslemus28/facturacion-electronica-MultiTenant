@@ -1,6 +1,7 @@
 // Catálogo territorial vigente utilizado por Hacienda (07/2026).
-// El DTE V2 exige que direccion.distrito se transmita con el código de distrito
-// de 6 dígitos, no con el nombre visible del distrito.
+// En DTE V2, direccion.municipio lleva el código CAT-013 del municipio vigente y
+// direccion.distrito lleva el código de 2 dígitos del distrito histórico dentro del departamento.
+// Conservamos también los códigos territoriales de 6/4 dígitos solo para resolver registros existentes.
 
 const normalizeKey = (value) => String(value || '')
   .trim()
@@ -362,7 +363,13 @@ const resolveDistrictCatalog = ({
   return null;
 };
 
-const normalizeDistrictCatalogCode = (location = {}) => resolveDistrictCatalog(location)?.districtCode || null;
+const normalizeDistrictCatalogCode = (location = {}) => {
+  const resolved = resolveDistrictCatalog(location);
+  if (!resolved?.oldDistrictCode) return null;
+
+  const districtCode = String(resolved.oldDistrictCode).replace(/\D/g, '').slice(-2);
+  return /^\d{2}$/.test(districtCode) ? districtCode : null;
+};
 
 module.exports = {
   DISTRICTS,

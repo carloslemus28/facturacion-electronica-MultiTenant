@@ -161,7 +161,7 @@ const getDistrictCodeOrThrow = ({
     municipalityName
   });
 
-  if (!districtCode || !/^\d{6}$/.test(districtCode)) {
+  if (!districtCode || !/^\d{2}$/.test(districtCode)) {
     const error = new Error(
       `No se pudo resolver el código de distrito vigente de Hacienda para ${context}. ` +
       'Seleccione nuevamente Departamento y Distrito antes de transmitir.'
