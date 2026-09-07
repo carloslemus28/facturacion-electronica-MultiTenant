@@ -406,7 +406,7 @@ const handlePhoneCountryChange = (country) => {
       return 'El NRC debe contener exactamente 8 dígitos';
     }
 
-    const normalizedCountryCode = normalizeHaciendaCountryCode(form.countryCode);
+    const normalizedCountryCode = normalizeHaciendaCountryCode(form.countryCode) || 'SV';
 
     if (normalizedCountryCode && !getHaciendaCountryOption(normalizedCountryCode)) {
       return 'Seleccione un país válido del catálogo CAT-020 de Hacienda';
@@ -461,7 +461,7 @@ const handlePhoneCountryChange = (country) => {
       municipalityCode: form.municipalityCode,
       municipalityName: form.municipalityName,
       addressComplement: form.addressComplement.trim(),
-      countryCode: normalizeHaciendaCountryCode(form.countryCode),
+      countryCode: normalizeHaciendaCountryCode(form.countryCode) || 'SV',
       isActive: form.isActive
     };
   };
@@ -543,7 +543,7 @@ const handlePhoneCountryChange = (country) => {
       municipalityCode: customer.municipalityCode || '',
       municipalityName: customer.municipalityName || '',
       addressComplement: customer.addressComplement || '',
-      countryCode: customer.countryCode || '',
+      countryCode: normalizeHaciendaCountryCode(customer.countryCode) || 'SV',
       isActive: customer.isActive ?? true
     });
 
@@ -915,16 +915,16 @@ const handlePhoneCountryChange = (country) => {
             </div>
 
             <SearchableSelect
-              label="País"
+              label="País (opcional)"
               value={normalizeHaciendaCountryCode(form.countryCode)}
               options={haciendaCountryOptions}
               onChange={(option) => {
                 setForm((prev) => ({
                   ...prev,
-                  countryCode: option?.code || ''
+                  countryCode: option?.code || 'SV'
                 }));
               }}
-              placeholder="Seleccione el país"
+              placeholder="El Salvador por defecto"
               searchPlaceholder="Buscar país"
               getOptionValue={(option) => option.code}
               getOptionLabel={(option) => option.name}

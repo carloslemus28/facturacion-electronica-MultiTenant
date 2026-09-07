@@ -188,6 +188,7 @@ const Customer = sequelize.define('Customer', {
   countryCode: {
     type: DataTypes.STRING(3),
     allowNull: true,
+    defaultValue: 'SV',
     field: 'country_code'
   },
 

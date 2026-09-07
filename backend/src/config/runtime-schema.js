@@ -149,6 +149,23 @@ const backfillTenantColumns = async () => {
   }
 };
 
+const backfillCustomerCountryCodes = async () => {
+  if (!(await tableExists('customers'))) return [];
+
+  const columns = await safeDescribeTable('customers');
+  if (!columns?.country_code) return [];
+
+  const [, metadata] = await sequelize.query(`
+    UPDATE customers
+    SET country_code = 'SV'
+    WHERE country_code IS NULL
+       OR TRIM(country_code) = ''
+  `);
+
+  const affectedRows = Number(metadata?.affectedRows || metadata || 0);
+  return affectedRows > 0 ? [`customers.country_code:SV:${affectedRows}`] : [];
+};
+
 const backfillElSalvadorCatalogCodes = async () => {
   const changes = [];
 
@@ -218,6 +235,20 @@ const ensureRuntimeSchema = async ({ beforeSync = false } = {}) => {
   })) {
     changes.push('customers.secondary_email');
   }
+
+  if (await ensureColumn({
+    tableName: 'customers',
+    columnName: 'country_code',
+    definition: {
+      type: DataTypes.STRING(3),
+      allowNull: true,
+      defaultValue: 'SV'
+    }
+  })) {
+    changes.push('customers.country_code');
+  }
+
+  changes.push(...await backfillCustomerCountryCodes());
 
   if (await ensureColumn({
     tableName: 'companies',
