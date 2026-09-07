@@ -408,7 +408,9 @@ const handlePhoneCountryChange = (country) => {
 
     const normalizedCountryCode = normalizeHaciendaCountryCode(form.countryCode) || 'SV';
 
-    if (normalizedCountryCode && !getHaciendaCountryOption(normalizedCountryCode)) {
+    // Si el usuario no selecciona país, el cliente se considera de El Salvador.
+    // SV es el valor por defecto y no debe bloquear la creación/edición del cliente.
+    if (normalizedCountryCode !== 'SV' && !getHaciendaCountryOption(normalizedCountryCode)) {
       return 'Seleccione un país válido del catálogo CAT-020 de Hacienda';
     }
 
@@ -916,7 +918,7 @@ const handlePhoneCountryChange = (country) => {
 
             <SearchableSelect
               label="País (opcional)"
-              value={normalizeHaciendaCountryCode(form.countryCode)}
+              value={normalizeHaciendaCountryCode(form.countryCode) || 'SV'}
               options={haciendaCountryOptions}
               onChange={(option) => {
                 setForm((prev) => ({
