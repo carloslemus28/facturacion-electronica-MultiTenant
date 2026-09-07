@@ -330,11 +330,11 @@ const formatReceiverDocumentNumber = (documentType, documentNumber) => {
 };
 
 const getInvalidationEventVersion = () => {
-  return Number(process.env.MH_INVALIDACION_EVENT_VERSION || 3);
+  return Number(process.env.MH_INVALIDACION_EVENT_VERSION || 2);
 };
 
 const getInvalidationTypeCode = () => {
-  return 2;
+  return Number(process.env.MH_INVALIDACION_EVENT_VERSION || 2);
 };
 
 const getFallbackDocumentType = (value) => {
@@ -568,7 +568,7 @@ const getExportPersonType = (customer) => {
     type.includes('SOCIEDAD') ||
     type.includes('CONTRIBUYENTE')
   ) {
-    return 2;
+    return Number(process.env.MH_INVALIDACION_EVENT_VERSION || 2);
   }
 
   return 1;
@@ -590,7 +590,7 @@ const getExportItemType = (invoice) => {
   if (hasProduct && hasService) return 3;
   if (hasProduct) return 1;
 
-  return 2;
+  return Number(process.env.MH_INVALIDACION_EVENT_VERSION || 2);
 };
 
 const buildDocumentRelated = (invoice) => {
@@ -1616,13 +1616,14 @@ const buildInvalidationJson = (invoice) => {
       version: getInvalidationEventVersion(),
       ambiente: getEnvironmentCode(company.environment),
       codigoGeneracion: cleanString(invoice.invalidationGenerationCode),
-      fecEmi: formatDate(invalidationDate),
-      horEmi: formatTime(invalidationDate),
-      fusion: cleanDigits(invoice.fusion || invoice.fusionNit || invoice.nitFusionado) || null
+      fecAnula: formatDate(invalidationDate),
+      horAnula: formatTime(invalidationDate)
     },
     emisor: {
       nit: cleanDigits(company.nit),
       nombre: cleanString(company.legalName),
+      tipoEstablecimiento: getEstablishmentTypeCode(establishment.establishmentType || company.establishmentType),
+      nomEstablecimiento: cleanString(establishment.name || company.commercialName || company.legalName),
       codEstableMH: cleanString(establishment.establishmentCode || company.establishmentCode || null),
       codEstable: cleanString(establishment.establishmentCode || company.establishmentCode || null),
       codPuntoVentaMH: cleanString(pointOfSale.code || company.pointOfSaleCode || null),
@@ -1636,6 +1637,7 @@ const buildInvalidationJson = (invoice) => {
       selloRecibido: cleanString(invoice.receptionSeal),
       numeroControl: cleanString(invoice.controlNumber),
       fecEmi: formatDate(invoice.issuedAt),
+      montoIva: getOfficialTotalIva(invoice),
       codigoGeneracionR: null,
       tipoDocumento: customerDocumentType,
       numDocumento: customerDocumentNumber,
