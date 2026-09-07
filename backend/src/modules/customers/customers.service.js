@@ -514,7 +514,7 @@ const createCustomer = async ({ data, user }) => {
     municipalityCode: normalizeEmpty(data.municipalityCode),
     municipalityName: normalizeText(data.municipalityName),
     addressComplement: normalizeText(data.addressComplement),
-    countryCode: normalizeEmpty(data.countryCode)
+    countryCode: normalizeEmpty(data.countryCode) || 'SV'
   };
 
   validateCustomerData(normalizedData);
@@ -617,7 +617,7 @@ const updateCustomer = async (id, { data, user }) => {
     municipalityCode: normalizeEmpty(data.municipalityCode ?? customer.municipalityCode),
     municipalityName: normalizeText(data.municipalityName ?? customer.municipalityName),
     addressComplement: normalizeText(data.addressComplement ?? customer.addressComplement),
-    countryCode: normalizeEmpty(data.countryCode ?? customer.countryCode),
+    countryCode: normalizeEmpty(data.countryCode ?? customer.countryCode) || 'SV',
     isActive: data.isActive ?? customer.isActive
   };
 

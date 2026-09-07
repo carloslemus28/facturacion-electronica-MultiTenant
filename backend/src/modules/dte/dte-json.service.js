@@ -8,6 +8,7 @@ const {
 } = require('../../utils/el-salvador-catalogs');
 const { normalizeUnitOfMeasureCode, normalizeFiscalPrecinctCode } = require('../../utils/hacienda-catalogs');
 const { normalizeCountryCode: normalizeCat020CountryCode, getCountryName: getCat020CountryName } = require('../../utils/hacienda-countries');
+const { normalizeDistrictCatalogCode } = require('../../utils/el-salvador-districts');
 
 const DOCUMENT_TYPE_CODES = {
   FACTURA: '01',
@@ -144,6 +145,32 @@ const getExportCountryCode = (customer = {}) => {
   }
 
   return code;
+};
+
+const getDistrictCodeOrThrow = ({
+  departmentCode,
+  districtName,
+  municipalityCode,
+  municipalityName,
+  context = 'dirección'
+} = {}) => {
+  const districtCode = normalizeDistrictCatalogCode({
+    departmentCode,
+    districtName,
+    municipalityCode,
+    municipalityName
+  });
+
+  if (!districtCode || !/^\d{6}$/.test(districtCode)) {
+    const error = new Error(
+      `No se pudo resolver el código de distrito vigente de Hacienda para ${context}. ` +
+      'Seleccione nuevamente Departamento y Distrito antes de transmitir.'
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return districtCode;
 };
 
 const getExportCountryName = (customer = {}, countryCode) => {
@@ -655,7 +682,13 @@ const buildIssuer = (invoice) => {
         municipalityCode: establishment.municipalityCode || company.municipalityCode,
         municipalityName: establishment.municipalityName || company.municipalityName
       }),
-      distrito: cleanString(establishment.districtName || company.districtName) || '',
+      distrito: getDistrictCodeOrThrow({
+        departmentCode: establishment.departmentCode || company.departmentCode,
+        districtName: establishment.districtName || company.districtName,
+        municipalityCode: establishment.municipalityCode || company.municipalityCode,
+        municipalityName: establishment.municipalityName || company.municipalityName,
+        context: 'la dirección del emisor'
+      }),
       complemento: cleanAddressComplement(establishment.addressComplement || company.addressComplement)
     },
     telefono: cleanPhone(company.phone),
@@ -794,7 +827,13 @@ const buildConsumerFinalReceiver = (customer, company = {}) => {
         municipalityCode: customer.municipalityCode,
         municipalityName: customer.municipalityName
       }),
-      distrito: cleanString(customer.districtName) || '',
+      distrito: getDistrictCodeOrThrow({
+        departmentCode: customer.departmentCode,
+        districtName: customer.districtName,
+        municipalityCode: customer.municipalityCode,
+        municipalityName: customer.municipalityName,
+        context: `la dirección del receptor ${cleanString(customer.name) || ''}}`.trim()
+      }),
       complemento: cleanAddressComplement(customer.addressComplement)
     },
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
@@ -822,7 +861,13 @@ const buildTaxpayerReceiver = (customer, company = {}) => {
         municipalityCode: customer.municipalityCode,
         municipalityName: customer.municipalityName
       }),
-      distrito: cleanString(customer.districtName) || '',
+      distrito: getDistrictCodeOrThrow({
+        departmentCode: customer.departmentCode,
+        districtName: customer.districtName,
+        municipalityCode: customer.municipalityCode,
+        municipalityName: customer.municipalityName,
+        context: `la dirección del receptor ${cleanString(customer.name) || ''}}`.trim()
+      }),
       complemento: cleanAddressComplement(customer.addressComplement)
     },
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
@@ -851,7 +896,13 @@ const buildAdjustmentNoteReceiver = (customer, company = {}) => {
         municipalityCode: customer.municipalityCode,
         municipalityName: customer.municipalityName
       }),
-      distrito: cleanString(customer.districtName) || '',
+      distrito: getDistrictCodeOrThrow({
+        departmentCode: customer.departmentCode,
+        districtName: customer.districtName,
+        municipalityCode: customer.municipalityCode,
+        municipalityName: customer.municipalityName,
+        context: `la dirección del receptor ${cleanString(customer.name) || ''}}`.trim()
+      }),
       complemento: cleanAddressComplement(customer.addressComplement)
     },
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
@@ -909,7 +960,13 @@ const buildExcludedSubject = (customer, company = {}) => {
         municipalityCode: customer.municipalityCode,
         municipalityName: customer.municipalityName
       }),
-      distrito: cleanString(customer.districtName) || '',
+      distrito: getDistrictCodeOrThrow({
+        departmentCode: customer.departmentCode,
+        districtName: customer.districtName,
+        municipalityCode: customer.municipalityCode,
+        municipalityName: customer.municipalityName,
+        context: `la dirección del receptor ${cleanString(customer.name) || ''}}`.trim()
+      }),
       complemento: cleanAddressComplement(customer.addressComplement)
     },
     telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),

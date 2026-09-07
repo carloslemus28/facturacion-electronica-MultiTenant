@@ -94,7 +94,7 @@ const initialForm = {
   municipalityCode: '',
   municipalityName: '',
   addressComplement: '',
-  countryCode: '',
+  countryCode: 'SV',
   isActive: true
 };
 
