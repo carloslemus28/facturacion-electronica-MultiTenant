@@ -725,7 +725,8 @@ const formatConsumerFinalDocumentNumber = (documentType, documentNumber) => {
     return null;
   }
 
-  // DUI: Hacienda requiere 8 dígitos, guion y dígito verificador.
+  // DUI (CAT-022 código 13): Normativa DTE V2 exige 9 dígitos
+  // sin guiones ni otros caracteres especiales en receptor/numDocumento.
   if (documentTypeCode === '13') {
     const dui = cleanDigits(rawValue);
 
@@ -737,7 +738,7 @@ const formatConsumerFinalDocumentNumber = (documentType, documentNumber) => {
       throw error;
     }
 
-    return `${dui.slice(0, 8)}-${dui.slice(8)}`;
+    return dui;
   }
 
   // NIT: se transmite únicamente con sus 14 dígitos.
