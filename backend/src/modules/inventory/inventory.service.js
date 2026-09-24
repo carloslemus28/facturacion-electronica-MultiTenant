@@ -165,7 +165,9 @@ const createMovement = async ({ data, transaction }) => {
   }, { transaction });
 };
 
-const registerProductEntry = async ({ user, data }) => {
+const canManageInventory = (user) => isAdminUser(user) || Boolean(user?.canManageInventory);
+
+const registerProductEntryInTransaction = async ({ user, data, transaction }) => {
   assertCompany(user);
 
   const productId = Number(data.productId || 0);
@@ -181,75 +183,121 @@ const registerProductEntry = async ({ user, data }) => {
     ? null
     : normalizeNonNegativeNumber(data.salePrice, 'El precio de venta');
 
-  return sequelize.transaction(async (transaction) => {
-    const product = await Product.findOne({
-      where: { id: productId, companyId: user.company.id, itemType: 'PRODUCTO' },
-      transaction,
-      lock: transaction.LOCK.UPDATE
-    });
+  const product = await Product.findOne({
+    where: { id: productId, companyId: user.company.id, itemType: 'PRODUCTO' },
+    transaction,
+    lock: transaction.LOCK.UPDATE
+  });
 
-    if (!product) {
-      const error = new Error('Producto de inventario no encontrado');
-      error.statusCode = 404;
-      throw error;
-    }
+  if (!product) {
+    const error = new Error('Producto de inventario no encontrado');
+    error.statusCode = 404;
+    throw error;
+  }
 
-    const allowedEstablishmentId = resolveEstablishmentId({ user });
-    if (allowedEstablishmentId && Number(product.establishmentId) !== allowedEstablishmentId) {
-      const error = new Error('No puede registrar inventario para otra sucursal');
-      error.statusCode = 403;
-      throw error;
-    }
+  const allowedEstablishmentId = resolveEstablishmentId({ user });
+  if (allowedEstablishmentId && Number(product.establishmentId) !== allowedEstablishmentId) {
+    const error = new Error('No puede registrar inventario para otra sucursal');
+    error.statusCode = 403;
+    throw error;
+  }
 
-    const currentStock = toNumber(product.stock);
-    const currentAverage = toNumber(product.averagePurchaseCost || product.purchasePrice);
-    const nextStock = round4(currentStock + quantity);
-    const nextAverage = computeWeightedAverageCost({
-      currentQuantity: currentStock,
-      currentAverageCost: currentAverage,
-      entryQuantity: quantity,
-      entryUnitCost: unitCost
-    });
+  const currentStock = toNumber(product.stock);
+  const currentAverage = toNumber(product.averagePurchaseCost || product.purchasePrice);
+  const nextStock = round4(currentStock + quantity);
+  const nextAverage = computeWeightedAverageCost({
+    currentQuantity: currentStock,
+    currentAverageCost: currentAverage,
+    entryQuantity: quantity,
+    entryUnitCost: unitCost
+  });
 
-    const update = {
-      stock: nextStock,
-      purchasePrice: unitCost,
-      averagePurchaseCost: nextAverage
-    };
+  const update = {
+    stock: nextStock,
+    purchasePrice: unitCost,
+    averagePurchaseCost: nextAverage
+  };
 
-    if (salePrice !== null) {
-      update.salePrice = salePrice;
-      update.unitPrice = salePrice;
-    }
+  if (salePrice !== null) {
+    update.salePrice = salePrice;
+    update.unitPrice = salePrice;
+  }
 
-    await product.update(update, { transaction });
+  await product.update(update, { transaction });
 
-    const movement = await createMovement({
-      transaction,
-      data: {
-        companyId: user.company.id,
-        establishmentId: product.establishmentId,
-        productId: product.id,
-        userId: user.id,
-        movementType: 'ENTRADA',
-        source: MOVEMENT_SOURCE_MANUAL,
-        reference: data.reference,
-        supplierName: data.supplierName,
-        supplierNationality: data.supplierNationality,
-        description: data.description || `Entrada manual de ${product.name}`,
-        quantityIn: quantity,
-        unitCost,
-        unitSalePrice: salePrice === null ? product.salePrice : salePrice,
-        balanceAfter: nextStock
-      }
-    });
-
-    return {
+  const movement = await createMovement({
+    transaction,
+    data: {
+      companyId: user.company.id,
+      establishmentId: product.establishmentId,
       productId: product.id,
-      stock: nextStock,
-      averagePurchaseCost: nextAverage,
-      movementId: movement.id
-    };
+      userId: user.id,
+      movementType: 'ENTRADA',
+      source: MOVEMENT_SOURCE_MANUAL,
+      reference: data.reference,
+      supplierName: data.supplierName,
+      supplierNationality: data.supplierNationality,
+      description: data.description || `Entrada manual de ${product.name}`,
+      quantityIn: quantity,
+      unitCost,
+      unitSalePrice: salePrice === null ? product.salePrice : salePrice,
+      balanceAfter: nextStock
+    }
+  });
+
+  return {
+    productId: product.id,
+    productCode: product.code,
+    productName: product.name,
+    stock: nextStock,
+    averagePurchaseCost: nextAverage,
+    movementId: movement.id
+  };
+};
+
+const registerProductEntry = async ({ user, data }) => {
+  if (!canManageInventory(user)) {
+    const error = new Error('No tiene habilitado el acceso para registrar entradas de inventario');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return sequelize.transaction((transaction) =>
+    registerProductEntryInTransaction({ user, data, transaction })
+  );
+};
+
+const registerProductEntries = async ({ user, entries }) => {
+  if (!canManageInventory(user)) {
+    const error = new Error('No tiene habilitado el acceso para registrar entradas de inventario');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    const error = new Error('Agregue al menos una entrada de producto');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (entries.length > 100) {
+    const error = new Error('Puede registrar un máximo de 100 entradas por operación');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return sequelize.transaction(async (transaction) => {
+    const results = [];
+
+    for (const entry of entries) {
+      results.push(await registerProductEntryInTransaction({
+        user,
+        data: entry || {},
+        transaction
+      }));
+    }
+
+    return results;
   });
 };
 
@@ -794,9 +842,9 @@ const fetchKardexMovementBatch = async ({ where, limit, offset }) => InventoryMo
 });
 
 const streamKardexWorkbook = async ({ user, query = {}, stream, filePath }) => {
-  // La ruta aplica requireAdmin; se valida nuevamente aquí para impedir usos internos accidentales.
-  if (!isAdminUser(user)) {
-    const error = new Error('Solo el Administrador puede descargar el Kardex');
+  // La ruta aplica requireInventoryAccess; se valida nuevamente para impedir usos internos accidentales.
+  if (!canManageInventory(user)) {
+    const error = new Error('No tiene habilitado el acceso para descargar el Kardex');
     error.statusCode = 403;
     throw error;
   }
@@ -879,6 +927,7 @@ module.exports = {
   MOVEMENT_SOURCE_INITIAL,
   MOVEMENT_SOURCE_ADJUSTMENT,
   registerProductEntry,
+  registerProductEntries,
   recordProductStockAdjustment,
   recordProductSaleMovement,
   deleteInvoiceMovements,

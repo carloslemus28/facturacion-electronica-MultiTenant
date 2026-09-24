@@ -35,6 +35,7 @@ const sanitizeUser = (user) => {
     lastName: plainUser.lastName,
     email: plainUser.email,
     pointOfSaleId: plainUser.pointOfSaleId,
+    canManageInventory: Boolean(plainUser.canManageInventory),
     isActive: plainUser.isActive,
     lastLoginAt: plainUser.lastLoginAt,
     createdAt: plainUser.createdAt,
@@ -167,6 +168,7 @@ const createUser = async ({ data, companyId }) => {
     email,
     passwordHash: await bcrypt.hash(data.password, 12),
     pointOfSaleId,
+    canManageInventory: Boolean(data.canManageInventory),
     isActive: data.isActive ?? true
   });
   await user.setRoles([role]);
@@ -195,6 +197,9 @@ const updateUser = async (id, { data, companyId }) => {
     lastName: normalizeText(data.lastName ?? user.lastName),
     email,
     pointOfSaleId,
+    canManageInventory: data.canManageInventory === undefined
+      ? user.canManageInventory
+      : Boolean(data.canManageInventory),
     isActive: data.isActive ?? user.isActive
   });
 

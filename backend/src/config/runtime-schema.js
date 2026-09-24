@@ -344,6 +344,18 @@ const ensureRuntimeSchema = async ({ beforeSync = false } = {}) => {
   changes.push(...await backfillCustomerCountryCodes());
 
   if (await ensureColumn({
+    tableName: 'users',
+    columnName: 'can_manage_inventory',
+    definition: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    }
+  })) {
+    changes.push('users.can_manage_inventory');
+  }
+
+  if (await ensureColumn({
     tableName: 'companies',
     columnName: 'use_logo_in_pdf',
     definition: {

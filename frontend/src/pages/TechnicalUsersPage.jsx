@@ -72,6 +72,7 @@ const initialUserForm = {
   password: '',
   roleCode: 'FACTURADOR',
   pointOfSaleId: '',
+  canManageInventory: false,
   isActive: true
 };
 
@@ -547,6 +548,7 @@ function TechnicalUsersPage() {
         userForm.roleCode === 'FACTURADOR'
           ? Number(userForm.pointOfSaleId)
           : null,
+      canManageInventory: Boolean(userForm.canManageInventory),
       isActive: userForm.isActive
     });
 
@@ -1030,6 +1032,26 @@ function TechnicalUsersPage() {
               </div>
             )}
 
+            {userForm.roleCode === 'FACTURADOR' && (
+              <label className="flex items-start gap-3 border border-blue-100 bg-blue-50/60 rounded-xl p-3 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  name="canManageInventory"
+                  checked={userForm.canManageInventory}
+                  onChange={handleUserChange}
+                  className="w-4 h-4 mt-0.5 shrink-0"
+                />
+                <span>
+                  <span className="font-semibold text-gray-900 block">
+                    Permitir registrar entradas y descargar Kardex
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    El usuario solo podrá trabajar con el inventario de la sucursal asociada a su punto de venta.
+                  </span>
+                </span>
+              </label>
+            )}
+
             {userForm.roleCode === 'ADMIN' && (
               <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-900 flex gap-2">
                 <ShieldCheck size={18} className="shrink-0" />
@@ -1212,6 +1234,12 @@ function TechnicalUsersPage() {
                       {isFacturadorUser(user) && (
                         <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full">
                           Facturador
+                        </span>
+                      )}
+
+                      {user.canManageInventory && (
+                        <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full">
+                          Inventario / Kardex
                         </span>
                       )}
                     </div>

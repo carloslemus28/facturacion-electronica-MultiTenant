@@ -85,6 +85,7 @@ const resolveUserContext = async (user) => {
     id: dbUser.id,
     username: dbUser.username,
     roles,
+    canManageInventory: roles.includes('ADMIN') || Boolean(dbUser.canManageInventory),
     company: company
       ? {
           id: company.id,
@@ -374,6 +375,12 @@ const createProduct = async ({ data, user }) => {
   const code = data.code.trim();
   const isService = itemType === 'SERVICIO';
 
+  if (!isService && !currentUser.canManageInventory && Number(data.stock || 0) > 0) {
+    const error = new Error('No tiene habilitado el acceso para registrar existencia inicial de inventario');
+    error.statusCode = 403;
+    throw error;
+  }
+
   await validateDuplicateCode({
     companyId: currentUser.company.id,
     establishmentId,
@@ -443,6 +450,19 @@ const updateProduct = async (id, { data, user }) => {
   const nextDescription = data.description !== undefined
     ? normalizeText(data.description)
     : currentProduct.description;
+
+  const currentStockValue = currentProduct.itemType === 'PRODUCTO'
+    ? Number(currentProduct.stock || 0)
+    : 0;
+  const requestedStockValue = isService
+    ? 0
+    : Number(data.stock ?? currentProduct.stock ?? 0);
+
+  if (!currentUser.canManageInventory && currentStockValue !== requestedStockValue) {
+    const error = new Error('No tiene habilitado el acceso para modificar existencias de inventario');
+    error.statusCode = 403;
+    throw error;
+  }
 
   validateProductData({
     ...currentProduct.toJSON(),

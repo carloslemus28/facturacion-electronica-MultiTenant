@@ -52,6 +52,7 @@ const authenticate = async (req, res, next) => {
       email: user.email,
       companyId: user.companyId,
       pointOfSaleId: user.pointOfSaleId,
+      canManageInventory: roles.includes('ADMIN') || Boolean(user.canManageInventory),
       roles,
       permissions,
       pointOfSale: user.pointOfSale
@@ -116,8 +117,22 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
+const requireInventoryAccess = (req, res, next) => {
+  const isAdmin = req.user?.roles?.includes('ADMIN');
+
+  if (!isAdmin && !req.user?.canManageInventory) {
+    return res.status(403).json({
+      ok: false,
+      message: 'No tiene habilitado el acceso para registrar entradas o descargar el Kardex'
+    });
+  }
+
+  next();
+};
+
 module.exports = {
   authenticate,
   authorize,
-  requireAdmin
+  requireAdmin,
+  requireInventoryAccess
 };

@@ -59,6 +59,13 @@ const User = sequelize.define('User', {
     field: 'point_of_sale_id'
   },
 
+  canManageInventory: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    field: 'can_manage_inventory'
+  },
+
   isActive: {
     type: DataTypes.BOOLEAN,
     defaultValue: true,

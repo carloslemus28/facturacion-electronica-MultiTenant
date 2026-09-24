@@ -49,6 +49,24 @@ const registerProductEntry = async (req, res, next) => {
   }
 };
 
+const registerProductEntries = async (req, res, next) => {
+  try {
+    const results = await inventoryService.registerProductEntries({
+      user: req.user,
+      entries: req.body?.entries
+    });
+
+    res.status(201).json({
+      ok: true,
+      message: `${results.length} entrada(s) de inventario registrada(s) correctamente`,
+      count: results.length,
+      results
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const buildKardexDownloadFileName = (query = {}) => {
   const startDate = String(query.startDate || 'inicio').replace(/[^0-9A-Za-z_-]/g, '');
   const endDate = String(query.endDate || 'actual').replace(/[^0-9A-Za-z_-]/g, '');
@@ -121,5 +139,6 @@ module.exports = {
   listMovements,
   getSummary,
   registerProductEntry,
+  registerProductEntries,
   downloadKardex
 };

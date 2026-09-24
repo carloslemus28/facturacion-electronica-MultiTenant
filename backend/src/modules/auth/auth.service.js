@@ -185,6 +185,7 @@ const buildAuthenticatedUser = async (user, roles, permissions, requestedCompany
     email: user.email,
     companyId: user.companyId,
     pointOfSaleId: user.pointOfSaleId,
+    canManageInventory: roles.includes('ADMIN') || Boolean(user.canManageInventory),
     roles,
     permissions,
 

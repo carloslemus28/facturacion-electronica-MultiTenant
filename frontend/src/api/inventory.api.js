@@ -15,6 +15,11 @@ export const registerProductInventoryEntryRequest = async (payload) => {
   return response.data;
 };
 
+export const registerProductInventoryEntriesRequest = async (entries) => {
+  const response = await api.post('/inventory/product-entries', { entries });
+  return response.data;
+};
+
 export const downloadKardexRequest = async (params = {}) => {
   const response = await api.get('/inventory/kardex.xlsx', {
     params,
