@@ -18,6 +18,7 @@ const dteSignerService = require('../dte/dte-signer.service');
 const dteTransmissionService = require('../dte/dte-transmission.service');
 const controlNumbersService = require('../dte/control-numbers.service');
 const invalidationDeadlineService = require('../dte/dte-invalidation-deadline.service');
+const inventoryService = require('../inventory/inventory.service');
 const DteEvent = require('../dte/dte-event.model');
 const InvoiceImportArtifact = require('../imports/invoice-import-artifact.model');
 const { resolveStoredArtifactPath } = require('../imports/import-storage');
@@ -1134,7 +1135,7 @@ const createGeneratedInvoice = async ({ data, user }) => {
       cotrans += itemTotals.cotrans;
       total += itemTotals.total;
 
-      await InvoiceItem.create({
+      const createdItem = await InvoiceItem.create({
         invoiceId: invoice.id,
         productId: item.productId || null,
         itemType: item.itemType || product?.itemType || 'SERVICIO',
@@ -1158,6 +1159,16 @@ const createGeneratedInvoice = async ({ data, user }) => {
         cotrans: itemTotals.cotrans,
         total: itemTotals.total
       }, { transaction });
+
+      if (product?.itemType === 'PRODUCTO' && ['01', '03'].includes(String(data.documentTypeCode))) {
+        await inventoryService.recordProductSaleMovement({
+          product,
+          invoice,
+          invoiceItem: createdItem,
+          userId: currentUser.id,
+          transaction
+        });
+      }
     }
 
     await invoice.update({
@@ -1325,6 +1336,11 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
       transaction
     });
 
+    await inventoryService.deleteInvoiceMovements({
+      invoiceId: invoice.id,
+      transaction
+    });
+
     for (const previousItem of previousItems) {
       if (!previousItem.productId) continue;
 
@@ -1421,7 +1437,7 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
       cotrans += itemTotals.cotrans;
       total += itemTotals.total;
 
-      await InvoiceItem.create({
+      const createdItem = await InvoiceItem.create({
         invoiceId: invoice.id,
         productId: item.productId || null,
         itemType: item.itemType || product?.itemType || 'SERVICIO',
@@ -1445,6 +1461,16 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
         cotrans: itemTotals.cotrans,
         total: itemTotals.total
       }, { transaction });
+
+      if (product?.itemType === 'PRODUCTO' && ['01', '03'].includes(String(data.documentTypeCode))) {
+        await inventoryService.recordProductSaleMovement({
+          product,
+          invoice,
+          invoiceItem: createdItem,
+          userId: currentUser.id,
+          transaction
+        });
+      }
     }
 
     await invoice.update({
@@ -2635,6 +2661,18 @@ const invalidateInvoiceReal = async ({ id, user, reason }) => {
         invalidationObservationsJson: transmission.observations || null,
         rejectionReason: null
       });
+
+      try {
+        await inventoryService.reverseInvoiceMovementsForInvalidation({
+          invoice,
+          userId: currentUser.id
+        });
+      } catch (inventoryError) {
+        console.error(
+          `No se pudo registrar reversión de Kardex para DTE anulado ${invoice.id}:`,
+          inventoryError.message
+        );
+      }
 
       return getInvoiceById(invoice.id, {
         user: currentUser

@@ -12,6 +12,7 @@ const Product = require('../products/product.model');
 const Invoice = require('../invoices/invoice.model');
 const InvoiceItem = require('../invoices/invoice-item.model');
 const InvoiceImportArtifact = require('../imports/invoice-import-artifact.model');
+const InventoryMovement = require('../inventory/inventory-movement.model');
 
 const applyUserAssociations = () => {
   User.belongsToMany(Role, {
@@ -367,6 +368,51 @@ const applyUserAssociations = () => {
       allowNull: true
     },
     as: 'product'
+  });
+
+  Company.hasMany(InventoryMovement, {
+    foreignKey: { name: 'companyId', field: 'company_id', allowNull: false },
+    as: 'inventoryMovements'
+  });
+  InventoryMovement.belongsTo(Company, {
+    foreignKey: { name: 'companyId', field: 'company_id', allowNull: false },
+    as: 'company'
+  });
+
+  Establishment.hasMany(InventoryMovement, {
+    foreignKey: { name: 'establishmentId', field: 'establishment_id', allowNull: false },
+    as: 'inventoryMovements'
+  });
+  InventoryMovement.belongsTo(Establishment, {
+    foreignKey: { name: 'establishmentId', field: 'establishment_id', allowNull: false },
+    as: 'establishment'
+  });
+
+  Product.hasMany(InventoryMovement, {
+    foreignKey: { name: 'productId', field: 'product_id', allowNull: true },
+    as: 'inventoryMovements'
+  });
+  InventoryMovement.belongsTo(Product, {
+    foreignKey: { name: 'productId', field: 'product_id', allowNull: true },
+    as: 'product'
+  });
+
+  Invoice.hasMany(InventoryMovement, {
+    foreignKey: { name: 'invoiceId', field: 'invoice_id', allowNull: true },
+    as: 'inventoryMovements'
+  });
+  InventoryMovement.belongsTo(Invoice, {
+    foreignKey: { name: 'invoiceId', field: 'invoice_id', allowNull: true },
+    as: 'invoice'
+  });
+
+  User.hasMany(InventoryMovement, {
+    foreignKey: { name: 'userId', field: 'user_id', allowNull: true },
+    as: 'inventoryMovements'
+  });
+  InventoryMovement.belongsTo(User, {
+    foreignKey: { name: 'userId', field: 'user_id', allowNull: true },
+    as: 'user'
   });
 };
 

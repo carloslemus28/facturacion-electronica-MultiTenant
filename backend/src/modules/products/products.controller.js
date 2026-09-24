@@ -2,16 +2,18 @@ const productsService = require('./products.service');
 
 const listProducts = async (req, res, next) => {
   try {
-    const products = await productsService.listProducts({
+    const result = await productsService.listProducts({
       query: req.query,
       user: req.user
     });
+    const products = Array.isArray(result) ? result : result.rows;
 
     res.set('Cache-Control', 'no-store');
 
     res.status(200).json({
       ok: true,
-      products
+      products,
+      ...(!Array.isArray(result) && result.pagination ? { pagination: result.pagination } : {})
     });
   } catch (error) {
     next(error);

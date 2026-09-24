@@ -11,6 +11,7 @@ const Product = require('../modules/products/product.model');
 const Invoice = require('../modules/invoices/invoice.model');
 const InvoiceItem = require('../modules/invoices/invoice-item.model');
 const InvoiceImportArtifact = require('../modules/imports/invoice-import-artifact.model');
+const InventoryMovement = require('../modules/inventory/inventory-movement.model');
 
 const applyUserAssociations = require('../modules/users/user.associations');
 
@@ -35,7 +36,8 @@ const loadModels = () => {
     Product,
     Invoice,
     InvoiceItem,
-    InvoiceImportArtifact
+    InvoiceImportArtifact,
+    InventoryMovement
   };
 };
 

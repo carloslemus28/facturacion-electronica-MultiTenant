@@ -2,13 +2,17 @@ import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   Box,
+  ChevronLeft,
+  ChevronRight,
+  Download,
   Edit,
   Loader2,
   PackagePlus,
   Plus,
   RefreshCcw,
   Save,
-  Search
+  Search,
+  Warehouse
 } from 'lucide-react';
 
 import {
@@ -16,6 +20,14 @@ import {
   getProductsRequest,
   updateProductRequest
 } from '../api/products.api';
+import { getEstablishmentsRequest } from '../api/companies.api';
+import {
+  downloadKardexRequest,
+  registerProductInventoryEntryRequest
+} from '../api/inventory.api';
+import { useAuth } from '../context/AuthContext';
+
+const PRODUCTS_PAGE_SIZE = 20;
 
 const initialForm = {
   code: '',
@@ -28,6 +40,17 @@ const initialForm = {
   salePrice: '',
   stock: '',
   isActive: true
+};
+
+const initialInventoryForm = {
+  productId: '',
+  quantity: '',
+  unitCost: '',
+  salePrice: '',
+  reference: '',
+  supplierName: '',
+  supplierNationality: '',
+  description: ''
 };
 
 const unitOptions = [
@@ -45,12 +68,31 @@ const unitOptions = [
 ];
 
 function ProductsPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.roles?.includes('ADMIN');
+
   const [products, setProducts] = useState([]);
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
 
   const [q, setQ] = useState('');
   const [itemTypeFilter, setItemTypeFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: PRODUCTS_PAGE_SIZE,
+    total: 0,
+    totalPages: 1
+  });
+
+  const [inventoryForm, setInventoryForm] = useState(initialInventoryForm);
+  const [inventoryProducts, setInventoryProducts] = useState([]);
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [savingInventory, setSavingInventory] = useState(false);
+  const [establishments, setEstablishments] = useState([]);
+  const [kardexDateRange, setKardexDateRange] = useState({ startDate: '', endDate: '' });
+  const [kardexEstablishmentId, setKardexEstablishmentId] = useState('');
+  const [downloadingKardex, setDownloadingKardex] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -58,16 +100,24 @@ function ProductsPage() {
   const isEditing = Boolean(editingId);
   const isService = form.itemType === 'SERVICIO';
 
-  const loadProducts = async () => {
+  const loadProducts = async (requestedPage = page) => {
     try {
       setLoading(true);
 
       const data = await getProductsRequest({
         q,
-        itemType: itemTypeFilter
+        itemType: itemTypeFilter,
+        page: requestedPage,
+        limit: PRODUCTS_PAGE_SIZE
       });
 
       setProducts(data.products || []);
+      setPagination(data.pagination || {
+        page: requestedPage,
+        limit: PRODUCTS_PAGE_SIZE,
+        total: data.products?.length || 0,
+        totalPages: 1
+      });
     } catch (error) {
       console.error('Error cargando productos:', error);
       toast.error('No se pudieron cargar los productos o servicios');
@@ -76,9 +126,38 @@ function ProductsPage() {
     }
   };
 
+  const loadInventoryProducts = async (search = inventorySearch) => {
+    try {
+      const data = await getProductsRequest({
+        q: search,
+        itemType: 'PRODUCTO',
+        isActive: 'true',
+        limit: 50
+      });
+      setInventoryProducts(data.products || []);
+    } catch (error) {
+      console.error('Error cargando productos de inventario:', error);
+    }
+  };
+
+  const loadEstablishments = async () => {
+    if (!isAdmin) return;
+    try {
+      const data = await getEstablishmentsRequest({ isActive: true });
+      setEstablishments(data.establishments || []);
+    } catch (error) {
+      console.error('Error cargando sucursales para Kardex:', error);
+    }
+  };
+
   useEffect(() => {
-    loadProducts();
-  }, []);
+    loadProducts(page);
+  }, [page]);
+
+  useEffect(() => {
+    loadInventoryProducts('');
+    loadEstablishments();
+  }, [user?.company?.id]);
 
   const filteredDescription = useMemo(() => {
     if (!q && !itemTypeFilter) {
@@ -200,7 +279,8 @@ function ProductsPage() {
       }
 
       resetForm();
-      await loadProducts();
+      if (page !== 1) setPage(1);
+      await Promise.all([loadProducts(1), loadInventoryProducts('')]);
     } catch (error) {
       console.error('Error guardando producto:', error);
 
@@ -235,7 +315,105 @@ function ProductsPage() {
 
   const handleSearch = async (event) => {
     event.preventDefault();
-    await loadProducts();
+    if (page === 1) {
+      await loadProducts(1);
+    } else {
+      setPage(1);
+    }
+  };
+
+  const handleInventoryChange = (event) => {
+    const { name, value } = event.target;
+
+    setInventoryForm((previous) => {
+      const next = { ...previous, [name]: value };
+
+      if (name === 'productId') {
+        const selectedProduct = inventoryProducts.find((product) => String(product.id) === String(value));
+        next.unitCost = selectedProduct?.purchasePrice !== null && selectedProduct?.purchasePrice !== undefined
+          ? Number(selectedProduct.purchasePrice).toString()
+          : '';
+        next.salePrice = selectedProduct?.salePrice !== null && selectedProduct?.salePrice !== undefined
+          ? Number(selectedProduct.salePrice).toString()
+          : '';
+      }
+
+      return next;
+    });
+  };
+
+  const handleInventoryEntry = async (event) => {
+    event.preventDefault();
+
+    if (!inventoryForm.productId) {
+      toast.error('Seleccione un producto');
+      return;
+    }
+    if (!inventoryForm.quantity || Number(inventoryForm.quantity) <= 0) {
+      toast.error('Ingrese una cantidad mayor que cero');
+      return;
+    }
+    if (inventoryForm.unitCost === '' || Number(inventoryForm.unitCost) < 0) {
+      toast.error('Ingrese un costo unitario válido');
+      return;
+    }
+
+    try {
+      setSavingInventory(true);
+      await registerProductInventoryEntryRequest({
+        ...inventoryForm,
+        productId: Number(inventoryForm.productId),
+        quantity: Number(inventoryForm.quantity),
+        unitCost: Number(inventoryForm.unitCost),
+        salePrice: inventoryForm.salePrice === '' ? null : Number(inventoryForm.salePrice)
+      });
+      toast.success('Entrada de inventario registrada correctamente');
+      setInventoryForm(initialInventoryForm);
+      await Promise.all([loadProducts(page), loadInventoryProducts(inventorySearch)]);
+    } catch (error) {
+      console.error('Error registrando entrada de inventario:', error);
+      toast.error(error.response?.data?.message || 'No se pudo registrar la entrada de inventario');
+    } finally {
+      setSavingInventory(false);
+    }
+  };
+
+  const handleInventoryProductSearch = async (event) => {
+    event.preventDefault();
+    await loadInventoryProducts(inventorySearch);
+  };
+
+  const downloadKardex = async () => {
+    if (!kardexDateRange.startDate || !kardexDateRange.endDate) {
+      toast.error('Seleccione la fecha inicial y final para descargar el Kardex');
+      return;
+    }
+    if (kardexDateRange.startDate > kardexDateRange.endDate) {
+      toast.error('La fecha inicial no puede ser mayor que la fecha final');
+      return;
+    }
+
+    try {
+      setDownloadingKardex(true);
+      const blob = await downloadKardexRequest({
+        ...kardexDateRange,
+        ...(kardexEstablishmentId ? { establishmentId: kardexEstablishmentId } : {})
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `kardex-tienda-${kardexDateRange.startDate}-${kardexDateRange.endDate}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Kardex descargado correctamente');
+    } catch (error) {
+      console.error('Error descargando Kardex:', error);
+      toast.error(error.response?.data?.message || 'No se pudo descargar el Kardex');
+    } finally {
+      setDownloadingKardex(false);
+    }
   };
 
   const formatMoney = (value) => {
@@ -266,12 +444,172 @@ function ProductsPage() {
         </div>
 
         <button
-          onClick={loadProducts}
+          onClick={() => loadProducts(page)}
           className="inline-flex items-center justify-center gap-2 bg-white border rounded-xl px-4 py-3 text-gray-700 hover:bg-gray-50"
         >
           <RefreshCcw size={18} />
           Actualizar
         </button>
+      </section>
+
+      <section className="bg-white rounded-2xl border shadow-sm p-5 mb-6">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center">
+              <Warehouse className="text-blue-900" size={23} />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg text-gray-900">Inventario</h3>
+              <p className="text-sm text-gray-500">
+                Administre entradas de inventario y el Kardex por empresa y sucursal.
+              </p>
+            </div>
+          </div>
+
+          {isAdmin && (
+            <div className="grid sm:grid-cols-4 gap-2 w-full lg:w-auto">
+              <select
+                value={kardexEstablishmentId}
+                onChange={(event) => setKardexEstablishmentId(event.target.value)}
+                className="border border-gray-300 rounded-xl px-3 py-2 bg-white"
+                title="Sucursal para Kardex"
+              >
+                <option value="">Todas las sucursales</option>
+                {establishments.map((establishment) => (
+                  <option key={establishment.id} value={establishment.id}>
+                    {establishment.establishmentCode} - {establishment.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={kardexDateRange.startDate}
+                onChange={(event) => setKardexDateRange((previous) => ({ ...previous, startDate: event.target.value }))}
+                className="border border-gray-300 rounded-xl px-3 py-2"
+                title="Fecha inicial para Kardex"
+              />
+              <input
+                type="date"
+                value={kardexDateRange.endDate}
+                onChange={(event) => setKardexDateRange((previous) => ({ ...previous, endDate: event.target.value }))}
+                className="border border-gray-300 rounded-xl px-3 py-2"
+                title="Fecha final para Kardex"
+              />
+              <button
+                type="button"
+                onClick={downloadKardex}
+                disabled={downloadingKardex}
+                className="inline-flex items-center justify-center gap-2 bg-blue-900 text-white rounded-xl px-4 py-2 font-semibold hover:bg-blue-800 disabled:opacity-70"
+              >
+                {downloadingKardex ? <Loader2 className="animate-spin" size={18} /> : <Download size={18} />}
+                Descargar Kardex
+              </button>
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={handleInventoryProductSearch} className="grid md:grid-cols-[1fr_auto] gap-2 mb-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={17} />
+            <input
+              value={inventorySearch}
+              onChange={(event) => setInventorySearch(event.target.value)}
+              className="w-full border border-gray-300 rounded-xl pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-800"
+              placeholder="Buscar producto para registrar entrada"
+            />
+          </div>
+          <button
+            type="submit"
+            className="inline-flex items-center justify-center gap-2 border rounded-xl px-4 py-2.5 text-gray-700 hover:bg-gray-50"
+          >
+            <Search size={17} />
+            Buscar producto
+          </button>
+        </form>
+
+        <form onSubmit={handleInventoryEntry} className="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <select
+            name="productId"
+            value={inventoryForm.productId}
+            onChange={handleInventoryChange}
+            className="border border-gray-300 rounded-xl px-3 py-2.5 bg-white"
+          >
+            <option value="">Seleccione producto</option>
+            {inventoryProducts.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.code} - {product.name} (Existencia: {Number(product.stock || 0)})
+              </option>
+            ))}
+          </select>
+          <input
+            name="quantity"
+            type="number"
+            min="0.0001"
+            step="0.0001"
+            value={inventoryForm.quantity}
+            onChange={handleInventoryChange}
+            className="border border-gray-300 rounded-xl px-3 py-2.5"
+            placeholder="Cantidad de entrada"
+          />
+          <input
+            name="unitCost"
+            type="number"
+            min="0"
+            step="0.0001"
+            value={inventoryForm.unitCost}
+            onChange={handleInventoryChange}
+            className="border border-gray-300 rounded-xl px-3 py-2.5"
+            placeholder="Costo unitario"
+          />
+          <input
+            name="salePrice"
+            type="number"
+            min="0"
+            step="0.0001"
+            value={inventoryForm.salePrice}
+            onChange={handleInventoryChange}
+            className="border border-gray-300 rounded-xl px-3 py-2.5"
+            placeholder="Precio venta (opcional)"
+          />
+          <input
+            name="supplierName"
+            value={inventoryForm.supplierName}
+            onChange={handleInventoryChange}
+            className="border border-gray-300 rounded-xl px-3 py-2.5"
+            placeholder="Proveedor (opcional)"
+          />
+          <input
+            name="supplierNationality"
+            value={inventoryForm.supplierNationality}
+            onChange={handleInventoryChange}
+            className="border border-gray-300 rounded-xl px-3 py-2.5"
+            placeholder="Nacionalidad (opcional)"
+          />
+          <input
+            name="reference"
+            value={inventoryForm.reference}
+            onChange={handleInventoryChange}
+            className="border border-gray-300 rounded-xl px-3 py-2.5"
+            placeholder="Factura / referencia"
+          />
+          <div className="flex gap-2">
+            <input
+              name="description"
+              value={inventoryForm.description}
+              onChange={handleInventoryChange}
+              className="min-w-0 flex-1 border border-gray-300 rounded-xl px-3 py-2.5"
+              placeholder="Descripción (opcional)"
+            />
+            <button
+              type="submit"
+              disabled={savingInventory}
+              className="inline-flex items-center justify-center gap-2 bg-blue-900 text-white rounded-xl px-4 py-2.5 font-semibold hover:bg-blue-800 disabled:opacity-70"
+            >
+              {savingInventory ? <Loader2 className="animate-spin" size={18} /> : <Plus size={18} />}
+              Entrada
+            </button>
+          </div>
+        </form>
       </section>
 
       <section className="grid xl:grid-cols-[430px_1fr] gap-6">
@@ -571,6 +909,34 @@ function ProductsPage() {
                   </div>
                 </article>
               ))}
+
+              {pagination.total > 0 && (
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-3 border-t">
+                  <p className="text-sm text-gray-500">
+                    Mostrando {products.length} de {pagination.total} registros. Página {pagination.page} de {pagination.totalPages}.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPage((previous) => Math.max(previous - 1, 1))}
+                      disabled={page <= 1 || loading}
+                      className="inline-flex items-center gap-1 border rounded-xl px-3 py-2 text-sm disabled:opacity-50"
+                    >
+                      <ChevronLeft size={16} />
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPage((previous) => Math.min(previous + 1, pagination.totalPages))}
+                      disabled={page >= pagination.totalPages || loading}
+                      className="inline-flex items-center gap-1 border rounded-xl px-3 py-2 text-sm disabled:opacity-50"
+                    >
+                      Siguiente
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </section>

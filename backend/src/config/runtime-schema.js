@@ -222,8 +222,101 @@ const backfillElSalvadorCatalogCodes = async () => {
   return changes;
 };
 
+const backfillInventoryKardex = async () => {
+  const changes = [];
+
+  if (!(await tableExists('products'))) return changes;
+
+  const columns = await safeDescribeTable('products');
+  if (columns?.average_purchase_cost) {
+    const [, avgMetadata] = await sequelize.query(`
+      UPDATE products
+      SET average_purchase_cost = COALESCE(purchase_price, 0)
+      WHERE item_type = 'PRODUCTO'
+        AND average_purchase_cost IS NULL
+    `);
+
+    const avgRows = Number(avgMetadata?.affectedRows || avgMetadata || 0);
+    if (avgRows > 0) changes.push(`products.average_purchase_cost:${avgRows}`);
+  }
+
+  if (!(await tableExists('inventory_movements'))) return changes;
+
+  // Al activar Kardex en una base existente no se inventa historial anterior.
+  // Se crea un único saldo inicial por producto con la existencia actual, para
+  // que a partir del despliegue todos los movimientos queden trazables.
+  const [, movementMetadata] = await sequelize.query(`
+    INSERT INTO inventory_movements (
+      company_id,
+      establishment_id,
+      product_id,
+      invoice_id,
+      user_id,
+      inventory_type,
+      movement_type,
+      source,
+      reference,
+      supplier_name,
+      supplier_nationality,
+      description,
+      quantity_in,
+      quantity_out,
+      unit_cost,
+      unit_sale_price,
+      balance_after,
+      movement_date,
+      created_at,
+      updated_at
+    )
+    SELECT
+      p.company_id,
+      p.establishment_id,
+      p.id,
+      NULL,
+      NULL,
+      'PRODUCTO',
+      'ENTRADA',
+      'SALDO_INICIAL',
+      'MIGRACION_KARDEX',
+      NULL,
+      NULL,
+      CONCAT('Saldo inicial al habilitar Kardex: ', p.name),
+      COALESCE(p.stock, 0),
+      0,
+      COALESCE(p.average_purchase_cost, p.purchase_price, 0),
+      p.sale_price,
+      COALESCE(p.stock, 0),
+      NOW(),
+      NOW(),
+      NOW()
+    FROM products p
+    LEFT JOIN inventory_movements im
+      ON im.product_id = p.id
+      AND im.company_id = p.company_id
+    WHERE p.item_type = 'PRODUCTO'
+      AND COALESCE(p.stock, 0) > 0
+      AND im.id IS NULL
+  `);
+
+  const inserted = Number(movementMetadata?.affectedRows || movementMetadata || 0);
+  if (inserted > 0) changes.push(`inventory_movements.saldos_iniciales:${inserted}`);
+
+  return changes;
+};
+
 const ensureRuntimeSchema = async ({ beforeSync = false } = {}) => {
   const changes = [];
+
+  if (await ensureColumn({
+    tableName: 'products',
+    columnName: 'average_purchase_cost',
+    definition: {
+      type: DataTypes.DECIMAL(14, 4),
+      allowNull: true
+    }
+  })) {
+    changes.push('products.average_purchase_cost');
+  }
 
   if (await ensureColumn({
     tableName: 'customers',
@@ -318,6 +411,7 @@ const ensureRuntimeSchema = async ({ beforeSync = false } = {}) => {
   if (!beforeSync) {
     changes.push(...await backfillElSalvadorCatalogCodes());
     changes.push(...await ensureTenantInvoiceControlNumberIndex());
+    changes.push(...await backfillInventoryKardex());
 
     const indexes = [
       ['users', ['company_id', 'is_active'], 'users_tenant_active_idx'],
@@ -325,7 +419,10 @@ const ensureRuntimeSchema = async ({ beforeSync = false } = {}) => {
       ['customers', ['company_id', 'name'], 'customers_tenant_name_idx'],
       ['products', ['company_id', 'establishment_id', 'is_active'], 'products_tenant_est_active_idx'],
       ['products', ['company_id', 'name'], 'products_tenant_name_idx'],
-      ['invoices', ['company_id', 'document_type_code', 'issued_at', 'id'], 'invoices_tenant_report_cursor']
+      ['invoices', ['company_id', 'document_type_code', 'issued_at', 'id'], 'invoices_tenant_report_cursor'],
+      ['inventory_movements', ['company_id', 'establishment_id', 'movement_date'], 'inventory_tenant_est_date_idx'],
+      ['inventory_movements', ['company_id', 'product_id', 'movement_date'], 'inventory_tenant_product_date_idx'],
+      ['inventory_movements', ['invoice_id'], 'inventory_invoice_idx']
     ];
 
     for (const [tableName, fields, name] of indexes) {

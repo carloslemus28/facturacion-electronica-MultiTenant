@@ -46,18 +46,13 @@ ENV VITE_RETURN_EVENT_FEATURE_ENABLED=$VITE_RETURN_EVENT_FEATURE_ENABLED
 RUN npm run build
 
 
-FROM node:20-alpine AS runner
+FROM nginx:1.27-alpine AS runner
 
-WORKDIR /app
+ENV PORT=8080
 
-ENV NODE_ENV=production
-
-COPY package*.json ./
-
-RUN npm ci --omit=dev
-
-COPY --from=build /app/dist ./dist
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
 EXPOSE 8080
 
-CMD ["npm", "start"]
+CMD ["nginx", "-g", "daemon off;"]

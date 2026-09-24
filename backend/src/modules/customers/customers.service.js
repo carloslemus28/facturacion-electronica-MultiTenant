@@ -361,49 +361,62 @@ const validateCustomerData = (data) => {
 
 const listCustomers = async ({ query = {}, user }) => {
   const currentUser = await resolveUserContext(user);
-  const { q = '', customerType = '', isActive = '', establishmentId = '' } = query;
+  const {
+    q = '', customerType = '', isActive = '', establishmentId = '', limit = '', page = ''
+  } = query;
 
   const where = await buildVisibilityWhere({
     user: currentUser,
     requestedEstablishmentId: establishmentId
   });
 
-  if (q) {
+  const searchTerm = String(q || '').trim();
+  if (searchTerm) {
     where[Op.or] = [
-      { name: { [Op.like]: `%${q}%` } },
-      { commercialName: { [Op.like]: `%${q}%` } },
-      { documentNumber: { [Op.like]: `%${q}%` } },
-      { nrc: { [Op.like]: `%${q}%` } },
-      { email: { [Op.like]: `%${q}%` } },
-      { secondaryEmail: { [Op.like]: `%${q}%` } },
-      { phone: { [Op.like]: `%${q}%` } },
-      { phoneNationalNumber: { [Op.like]: `%${q}%` } },
-      { economicActivityName: { [Op.like]: `%${q}%` } },
-      { secondaryEconomicActivityName: { [Op.like]: `%${q}%` } },
-      { tertiaryEconomicActivityName: { [Op.like]: `%${q}%` } }
+      { name: { [Op.like]: `%${searchTerm}%` } },
+      { commercialName: { [Op.like]: `%${searchTerm}%` } },
+      { documentNumber: { [Op.like]: `%${searchTerm}%` } },
+      { nrc: { [Op.like]: `%${searchTerm}%` } },
+      { email: { [Op.like]: `%${searchTerm}%` } },
+      { secondaryEmail: { [Op.like]: `%${searchTerm}%` } },
+      { phone: { [Op.like]: `%${searchTerm}%` } },
+      { phoneNationalNumber: { [Op.like]: `%${searchTerm}%` } },
+      { economicActivityName: { [Op.like]: `%${searchTerm}%` } },
+      { secondaryEconomicActivityName: { [Op.like]: `%${searchTerm}%` } },
+      { tertiaryEconomicActivityName: { [Op.like]: `%${searchTerm}%` } }
     ];
   }
 
-  if (customerType) {
-    where.customerType = customerType;
-  }
+  if (customerType) where.customerType = customerType;
+  if (isActive !== '') where.isActive = isActive === 'true';
 
-  if (isActive !== '') {
-    where.isActive = isActive === 'true';
-  }
-
-  const customers = await Customer.findAll({
+  const safeLimit = Math.min(Math.max(Number(limit) || 0, 0), 200);
+  const safePage = Math.max(Number(page) || 0, 0);
+  const shouldPaginate = safePage > 0 && safeLimit > 0;
+  const queryOptions = {
     where,
-    include: [
-      {
-        model: Establishment,
-        as: 'establishment'
-      }
-    ],
-    order: [['name', 'ASC']]
-  });
+    include: [{ model: Establishment, as: 'establishment' }],
+    order: [['name', 'ASC'], ['documentNumber', 'ASC'], ['id', 'ASC']],
+    distinct: true
+  };
 
-  return customers;
+  if (shouldPaginate) {
+    queryOptions.limit = safeLimit;
+    queryOptions.offset = (safePage - 1) * safeLimit;
+    const { count, rows } = await Customer.findAndCountAll(queryOptions);
+    return {
+      rows,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total: count,
+        totalPages: Math.max(Math.ceil(count / safeLimit), 1)
+      }
+    };
+  }
+
+  if (safeLimit > 0) queryOptions.limit = safeLimit;
+  return Customer.findAll(queryOptions);
 };
 
 const getCustomerById = async (id, { user } = {}) => {

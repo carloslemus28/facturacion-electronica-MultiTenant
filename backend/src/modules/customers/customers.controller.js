@@ -2,16 +2,18 @@ const customersService = require('./customers.service');
 
 const listCustomers = async (req, res, next) => {
   try {
-    const customers = await customersService.listCustomers({
+    const result = await customersService.listCustomers({
       query: req.query,
       user: req.user
     });
+    const customers = Array.isArray(result) ? result : result.rows;
 
     res.set('Cache-Control', 'no-store');
 
     res.status(200).json({
       ok: true,
-      customers
+      customers,
+      ...(!Array.isArray(result) && result.pagination ? { pagination: result.pagination } : {})
     });
   } catch (error) {
     next(error);

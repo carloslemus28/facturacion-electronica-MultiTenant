@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
+const gzipResponseMiddleware = require('./middlewares/gzip-response.middleware');
 
 const authRoutes = require('./modules/auth/auth.routes');
 const companiesRoutes = require('./modules/companies/companies.routes');
@@ -19,6 +20,7 @@ const dteEventsRoutes = require('./modules/dte/dte-events.routes');
 const dtePdfRoutes = require('./modules/dte/dte-pdf.routes');
 const emailsRoutes = require('./modules/emails/emails.routes');
 const importsRoutes = require('./modules/imports/imports.routes');
+const inventoryRoutes = require('./modules/inventory/inventory.routes');
 
 const app = express();
 
@@ -45,6 +47,7 @@ app.use(express.json({ limit: requestBodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: requestBodyLimit }));
 
 app.use(cookieParser(process.env.COOKIE_SECRET));
+app.use(gzipResponseMiddleware());
 
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
@@ -65,6 +68,7 @@ app.use('/api/dte-events', dteEventsRoutes);
 app.use('/api/dte-pdf', dtePdfRoutes);
 app.use('/api/emails', emailsRoutes);
 app.use('/api/imports', importsRoutes);
+app.use('/api/inventory', inventoryRoutes);
 app.get('/api/health', (req, res) => {
 
   res.set('Cache-Control', 'no-store');

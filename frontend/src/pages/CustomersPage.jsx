@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   Edit,
   Loader2,
   Plus,
@@ -107,6 +109,8 @@ const documentTypeOptions = [
   { value: 'OTRO', label: 'Otro' }
 ];
 
+const CUSTOMERS_PAGE_SIZE = 20;
+
 const documentTypeLabels = {
   SIN_DOCUMENTO: 'Sin documento',
   DUI: 'DUI',
@@ -145,6 +149,13 @@ function CustomersPage() {
 
   const [q, setQ] = useState('');
   const [activeFilter, setActiveFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: CUSTOMERS_PAGE_SIZE,
+    total: 0,
+    totalPages: 1
+  });
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -189,12 +200,14 @@ function CustomersPage() {
     return 'Mostrando clientes según los filtros aplicados.';
   }, [q, activeFilter]);
 
-  const loadCustomers = async () => {
+  const loadCustomers = async (requestedPage = page) => {
     try {
       setLoading(true);
 
       const params = {
-        q
+        q,
+        page: requestedPage,
+        limit: CUSTOMERS_PAGE_SIZE
       };
 
       if (activeFilter !== '') {
@@ -204,6 +217,12 @@ function CustomersPage() {
       const data = await getCustomersRequest(params);
 
       setCustomers(data.customers || []);
+      setPagination(data.pagination || {
+        page: requestedPage,
+        limit: CUSTOMERS_PAGE_SIZE,
+        total: data.customers?.length || 0,
+        totalPages: 1
+      });
     } catch (error) {
       console.error('Error cargando clientes:', error);
       toast.error('No se pudieron cargar los clientes');
@@ -213,8 +232,8 @@ function CustomersPage() {
   };
 
   useEffect(() => {
-    loadCustomers();
-  }, []);
+    loadCustomers(page);
+  }, [page]);
 
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
@@ -483,7 +502,8 @@ const handlePhoneCountryChange = (country) => {
       }
 
       resetForm();
-      await loadCustomers();
+      if (page !== 1) setPage(1);
+      await loadCustomers(1);
     } catch (error) {
       console.error('Error guardando cliente:', error);
 
@@ -559,7 +579,11 @@ const handlePhoneCountryChange = (country) => {
 
   const handleSearch = async (event) => {
     event.preventDefault();
-    await loadCustomers();
+    if (page === 1) {
+      await loadCustomers(1);
+    } else {
+      setPage(1);
+    }
   };
 
   return (
@@ -622,7 +646,7 @@ const handlePhoneCountryChange = (country) => {
 
         <button
           type="button"
-          onClick={loadCustomers}
+          onClick={() => loadCustomers(page)}
           className="inline-flex items-center justify-center gap-2 bg-white border rounded-xl px-4 py-3 text-gray-700 hover:bg-gray-50"
         >
           <RefreshCcw size={18} />
@@ -1115,6 +1139,34 @@ const handlePhoneCountryChange = (country) => {
                   </div>
                 </article>
               ))}
+
+              {pagination.total > 0 && (
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-3 border-t">
+                  <p className="text-sm text-gray-500">
+                    Mostrando {customers.length} de {pagination.total} registros. Página {pagination.page} de {pagination.totalPages}.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPage((previous) => Math.max(previous - 1, 1))}
+                      disabled={page <= 1 || loading}
+                      className="inline-flex items-center gap-1 border rounded-xl px-3 py-2 text-sm disabled:opacity-50"
+                    >
+                      <ChevronLeft size={16} />
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPage((previous) => Math.min(previous + 1, pagination.totalPages))}
+                      disabled={page >= pagination.totalPages || loading}
+                      className="inline-flex items-center gap-1 border rounded-xl px-3 py-2 text-sm disabled:opacity-50"
+                    >
+                      Siguiente
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </section>

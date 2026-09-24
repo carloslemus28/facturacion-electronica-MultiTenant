@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const { sequelize } = require('../../config/database');
 
 const Product = require('./product.model');
 const User = require('../users/user.model');
@@ -6,6 +7,7 @@ const Role = require('../users/role.model');
 const Company = require('../companies/company.model');
 const Establishment = require('../companies/establishment.model');
 const PointOfSale = require('../companies/point-of-sale.model');
+const inventoryService = require('../inventory/inventory.service');
 
 const normalizeText = (value) => {
   if (value === undefined || value === null) return null;
@@ -251,41 +253,56 @@ const validateProductData = (data) => {
 
 const listProducts = async ({ query = {}, user }) => {
   const currentUser = await resolveUserContext(user);
-  const { q = '', itemType = '', isActive = '', establishmentId = '' } = query;
+  const {
+    q = '', itemType = '', isActive = '', establishmentId = '', limit = '', page = ''
+  } = query;
 
   const where = await buildVisibilityWhere({
     user: currentUser,
     requestedEstablishmentId: establishmentId
   });
 
-  if (q) {
+  const searchTerm = String(q || '').trim();
+  if (searchTerm) {
     where[Op.or] = [
-      { code: { [Op.like]: `%${q}%` } },
-      { name: { [Op.like]: `%${q}%` } },
-      { description: { [Op.like]: `%${q}%` } }
+      { code: { [Op.like]: `%${searchTerm}%` } },
+      { name: { [Op.like]: `%${searchTerm}%` } },
+      { description: { [Op.like]: `%${searchTerm}%` } }
     ];
   }
 
-  if (itemType) {
-    where.itemType = itemType;
-  }
+  if (itemType) where.itemType = itemType;
+  if (isActive !== '') where.isActive = isActive === 'true';
 
-  if (isActive !== '') {
-    where.isActive = isActive === 'true';
-  }
+  const safeLimit = Math.min(Math.max(Number(limit) || 0, 0), 200);
+  const safePage = Math.max(Number(page) || 0, 0);
+  const shouldPaginate = safePage > 0 && safeLimit > 0;
 
-  const products = await Product.findAll({
+  const queryOptions = {
     where,
-    include: [
-      {
-        model: Establishment,
-        as: 'establishment'
-      }
-    ],
-    order: [['name', 'ASC']]
-  });
+    include: [{ model: Establishment, as: 'establishment' }],
+    order: [['name', 'ASC'], ['code', 'ASC'], ['id', 'ASC']],
+    distinct: true
+  };
 
-  return products;
+  if (shouldPaginate) {
+    queryOptions.limit = safeLimit;
+    queryOptions.offset = (safePage - 1) * safeLimit;
+    const { count, rows } = await Product.findAndCountAll(queryOptions);
+
+    return {
+      rows,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total: count,
+        totalPages: Math.max(Math.ceil(count / safeLimit), 1)
+      }
+    };
+  }
+
+  if (safeLimit > 0) queryOptions.limit = safeLimit;
+  return Product.findAll(queryOptions);
 };
 
 const getProductById = async (id, { user } = {}) => {
@@ -352,11 +369,7 @@ const createProduct = async ({ data, user }) => {
   });
 
   const itemType = data.itemType || 'PRODUCTO';
-
-  validateProductData({
-    ...data,
-    itemType
-  });
+  validateProductData({ ...data, itemType });
 
   const code = data.code.trim();
   const isService = itemType === 'SERVICIO';
@@ -367,55 +380,72 @@ const createProduct = async ({ data, user }) => {
     code
   });
 
-  const product = await Product.create({
-    companyId: currentUser.company.id,
-    establishmentId,
-    code,
-    itemType,
-    name: data.name.trim(),
-    description: isService ? normalizeText(data.description) : normalizeText(data.description),
-    unitOfMeasure: data.unitOfMeasure || (isService ? '99' : '59'),
-    unitOfMeasureName: data.unitOfMeasureName || (isService ? 'Servicio' : 'Unidad'),
+  const productId = await sequelize.transaction(async (transaction) => {
+    const purchasePrice = isService ? null : normalizeNumber(data.purchasePrice);
+    const initialStock = isService ? null : normalizeNumber(data.stock);
 
-    purchasePrice: isService ? null : normalizeNumber(data.purchasePrice),
-    salePrice: isService ? null : normalizeNumber(data.salePrice),
+    const product = await Product.create({
+      companyId: currentUser.company.id,
+      establishmentId,
+      code,
+      itemType,
+      name: data.name.trim(),
+      description: normalizeText(data.description),
+      unitOfMeasure: data.unitOfMeasure || (isService ? '99' : '59'),
+      unitOfMeasureName: data.unitOfMeasureName || (isService ? 'Servicio' : 'Unidad'),
+      purchasePrice,
+      averagePurchaseCost: isService ? null : purchasePrice,
+      salePrice: isService ? null : normalizeNumber(data.salePrice),
+      unitPrice: isService ? null : normalizeNumber(data.salePrice),
+      appliesIva: true,
+      stock: initialStock,
+      isActive: data.isActive ?? true
+    }, { transaction });
 
-    unitPrice: isService ? null : normalizeNumber(data.salePrice),
+    if (!isService && Number(initialStock || 0) > 0) {
+      await inventoryService.recordProductStockAdjustment({
+        product,
+        previousStock: 0,
+        nextStock: initialStock,
+        userId: currentUser.id,
+        unitCost: purchasePrice || 0,
+        source: inventoryService.MOVEMENT_SOURCE_INITIAL,
+        reference: 'SALDO_INICIAL',
+        description: `Saldo inicial de ${product.name}`,
+        transaction
+      });
+    }
 
-    appliesIva: true,
-    stock: isService ? null : normalizeNumber(data.stock),
-    isActive: data.isActive ?? true
+    return product.id;
   });
 
-  return getProductById(product.id, {
-    user: currentUser
-  });
+  return getProductById(productId, { user: currentUser });
 };
 
 const updateProduct = async (id, { data, user }) => {
   const currentUser = await resolveUserContext(user);
-  const product = await getProductById(id, { user: currentUser });
+  const currentProduct = await getProductById(id, { user: currentUser });
 
   const nextEstablishmentId = await getWritableEstablishmentId({
     user: currentUser,
-    requestedEstablishmentId: data.establishmentId ?? product.establishmentId
+    requestedEstablishmentId: data.establishmentId ?? currentProduct.establishmentId
   });
 
-  if (!isAdminUser(currentUser) && Number(nextEstablishmentId) !== Number(product.establishmentId)) {
+  if (!isAdminUser(currentUser) && Number(nextEstablishmentId) !== Number(currentProduct.establishmentId)) {
     const error = new Error('No puede mover productos o servicios entre establecimientos');
     error.statusCode = 403;
     throw error;
   }
 
-  const nextItemType = data.itemType ?? product.itemType;
+  const nextItemType = data.itemType ?? currentProduct.itemType;
   const isService = nextItemType === 'SERVICIO';
-  const nextCode = data.code ? data.code.trim() : product.code;
+  const nextCode = data.code ? data.code.trim() : currentProduct.code;
   const nextDescription = data.description !== undefined
     ? normalizeText(data.description)
-    : product.description;
+    : currentProduct.description;
 
   validateProductData({
-    ...product.toJSON(),
+    ...currentProduct.toJSON(),
     ...data,
     code: nextCode,
     description: nextDescription,
@@ -426,31 +456,62 @@ const updateProduct = async (id, { data, user }) => {
     companyId: currentUser.company.id,
     establishmentId: nextEstablishmentId,
     code: nextCode,
-    excludeId: product.id
+    excludeId: currentProduct.id
   });
 
-  await product.update({
-    establishmentId: nextEstablishmentId,
-    code: nextCode,
-    itemType: nextItemType,
-    name: data.name ?? product.name,
-    description: nextDescription,
-    unitOfMeasure: data.unitOfMeasure ?? product.unitOfMeasure,
-    unitOfMeasureName: data.unitOfMeasureName ?? product.unitOfMeasureName,
+  await sequelize.transaction(async (transaction) => {
+    const product = await Product.findOne({
+      where: { id: currentProduct.id, companyId: currentUser.company.id },
+      transaction,
+      lock: transaction.LOCK.UPDATE
+    });
 
-    purchasePrice: isService ? null : normalizeNumber(data.purchasePrice ?? product.purchasePrice),
-    salePrice: isService ? null : normalizeNumber(data.salePrice ?? product.salePrice),
+    const previousStock = product.itemType === 'PRODUCTO' ? Number(product.stock || 0) : 0;
+    const nextStock = isService ? null : normalizeNumber(data.stock ?? product.stock);
+    const nextPurchasePrice = isService ? null : normalizeNumber(data.purchasePrice ?? product.purchasePrice);
+    let nextAveragePurchaseCost = isService ? null : product.averagePurchaseCost;
 
-    unitPrice: isService ? null : normalizeNumber(data.salePrice ?? product.salePrice),
+    if (!isService && (product.itemType !== 'PRODUCTO' || nextAveragePurchaseCost === null)) {
+      nextAveragePurchaseCost = nextPurchasePrice;
+    }
+    if (!isService && Number(previousStock) === 0 && Number(nextStock || 0) > 0) {
+      nextAveragePurchaseCost = nextPurchasePrice;
+    }
 
-    appliesIva: true,
-    stock: isService ? null : normalizeNumber(data.stock ?? product.stock),
-    isActive: data.isActive ?? product.isActive
+    await product.update({
+      establishmentId: nextEstablishmentId,
+      code: nextCode,
+      itemType: nextItemType,
+      name: data.name ?? product.name,
+      description: nextDescription,
+      unitOfMeasure: data.unitOfMeasure ?? product.unitOfMeasure,
+      unitOfMeasureName: data.unitOfMeasureName ?? product.unitOfMeasureName,
+      purchasePrice: nextPurchasePrice,
+      averagePurchaseCost: nextAveragePurchaseCost,
+      salePrice: isService ? null : normalizeNumber(data.salePrice ?? product.salePrice),
+      unitPrice: isService ? null : normalizeNumber(data.salePrice ?? product.salePrice),
+      appliesIva: true,
+      stock: nextStock,
+      isActive: data.isActive ?? product.isActive
+    }, { transaction });
+
+    const effectiveNextStock = isService ? 0 : Number(nextStock || 0);
+    if (previousStock !== effectiveNextStock) {
+      await inventoryService.recordProductStockAdjustment({
+        product,
+        previousStock,
+        nextStock: effectiveNextStock,
+        userId: currentUser.id,
+        unitCost: nextAveragePurchaseCost ?? nextPurchasePrice ?? 0,
+        source: inventoryService.MOVEMENT_SOURCE_ADJUSTMENT,
+        reference: 'EDICION_PRODUCTO',
+        description: `Ajuste de existencia desde catálogo: ${product.name}`,
+        transaction
+      });
+    }
   });
 
-  return getProductById(product.id, {
-    user: currentUser
-  });
+  return getProductById(currentProduct.id, { user: currentUser });
 };
 
 module.exports = {

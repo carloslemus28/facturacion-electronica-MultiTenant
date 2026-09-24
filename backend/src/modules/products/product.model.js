@@ -62,6 +62,12 @@ const Product = sequelize.define('Product', {
     field: 'purchase_price'
   },
 
+  averagePurchaseCost: {
+    type: DataTypes.DECIMAL(14, 4),
+    allowNull: true,
+    field: 'average_purchase_cost'
+  },
+
   salePrice: {
     type: DataTypes.DECIMAL(12, 4),
     allowNull: true,
