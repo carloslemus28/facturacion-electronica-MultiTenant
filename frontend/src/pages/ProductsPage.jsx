@@ -740,15 +740,9 @@ function ProductsPage() {
                     step="0.0001"
                     value={form.stock}
                     onChange={handleChange}
-                    disabled={!canManageInventory}
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 disabled:bg-gray-100 disabled:text-gray-500"
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800"
                     placeholder="0"
                   />
-                  {!canManageInventory && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      La existencia se gestiona únicamente con acceso a Inventario / Kardex.
-                    </p>
-                  )}
                 </div>
               </div>
             )}
