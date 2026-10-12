@@ -1,4 +1,6 @@
 const fs = require('fs');
+const { getFiscalDateTimeParts } = require('../../utils/fiscal-dates');
+const { decodeSignedJson, getStoredOriginalDocument, getOriginalDocumentContext } = require('./dte-original-document.service');
 
 const invoicesService = require('../invoices/invoices.service');
 const { resolveStoredArtifactPath } = require('../imports/import-storage');
@@ -329,13 +331,9 @@ const formatReceiverDocumentNumber = (documentType, documentNumber) => {
   return rawValue.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 };
 
-const getInvalidationEventVersion = () => {
-  return Number(process.env.MH_INVALIDACION_EVENT_VERSION || 2);
-};
+const getInvalidationEventVersion = () => 3;
 
-const getInvalidationTypeCode = () => {
-  return Number(process.env.MH_INVALIDACION_EVENT_VERSION || 2);
-};
+const getInvalidationTypeCode = () => 2; // Este formulario rescinde la operación; no es la versión del evento.
 
 const getFallbackDocumentType = (value) => {
   return getDocumentTypeForReceiver(value) || '36';
@@ -1531,7 +1529,27 @@ const buildStandardDteJson = (invoice) => {
   return dte;
 };
 
-const buildInvalidationJson = (invoice) => {
+const getOriginalDteForInvalidation = async (invoice) => {
+  const stored = getStoredOriginalDocument(invoice);
+  if (stored) return stored;
+  const artifact = await invoicesService.findHistoricalImportArtifactForInvoice(invoice);
+  if (!artifact?.jsonRelativePath) return null;
+  if (Number(artifact.companyId) !== Number(invoice.companyId) || Number(artifact.invoiceId) !== Number(invoice.id)) {
+    const error = new Error('El archivo histórico no pertenece a este contribuyente y DTE.');
+    error.statusCode = 400; throw error;
+  }
+  try {
+    const raw = await fs.promises.readFile(resolveStoredArtifactPath(artifact.jsonRelativePath), 'utf8');
+    return getStoredOriginalDocument(invoice, JSON.parse(raw.replace(/^\uFEFF/, '')));
+  } catch (error) {
+    if (error.statusCode) throw error;
+    const invalid = new Error('No se pudo leer el JSON histórico original de este DTE. Recupere el archivo antes de anularlo.');
+    invalid.statusCode = 400;
+    throw invalid;
+  }
+};
+
+const buildInvalidationJson = (invoice, { originalDte = null } = {}) => {
   const company = invoice.company || {};
   const customer = invoice.customer || {};
   const user = invoice.user || {};
@@ -1539,6 +1557,24 @@ const buildInvalidationJson = (invoice) => {
   const establishment = pointOfSale.establishment || {};
 
   const invalidationDate = invoice.invalidatedAt || invoice.invalidationSignedAt || new Date();
+  const context = getOriginalDocumentContext(invoice, originalDte);
+  const originalReceiver = context.original?.receptor || context.original?.sujetoExcluido || null;
+  const hasOriginal = Boolean(context.original);
+  const receiverType = hasOriginal
+    ? (originalReceiver?.nit ? '36' : originalReceiver?.tipoDocumento ?? null)
+    : getDocumentTypeForReceiver(customer.documentType);
+  const receiverNumber = hasOriginal
+    ? originalReceiver?.nit || originalReceiver?.numDocumento || null
+    : getFallbackDocumentNumber(customer.documentNumber, customer.dui, customer.nit);
+  const acceptedEvent = invoice.status === 'ANULADO' && invoice.invalidationSignedJws
+    ? decodeSignedJson(invoice.invalidationSignedJws) : null;
+  // Rescisión: la fecha fiscal corresponde a la operación original. Es obligatoria
+  // para CCF/notas y está dentro del intervalo permitido para FE/FEX/FSEE.
+  // invalidatedAt conserva separadamente el instante real de la acción.
+  const eventDate = acceptedEvent?.identificacion?.fecEmi || acceptedEvent?.identificacion?.fecAnula || context.date;
+  const eventTime = acceptedEvent?.identificacion?.horEmi || acceptedEvent?.identificacion?.horAnula
+    || getFiscalDateTimeParts(invalidationDate)?.time;
+  if (!eventTime) { const error = new Error('La hora de invalidación no es válida.'); error.statusCode = 400; throw error; }
 
   const userDocumentType = getFallbackDocumentType(user.documentType);
   const userDocumentNumber = getFallbackDocumentNumber(
@@ -1594,31 +1630,13 @@ const buildInvalidationJson = (invoice) => {
     process.env.SMTP_FROM_EMAIL
   );
 
-  if (!documentPhone) {
-    const error = new Error(
-      'No se puede anular el DTE porque el evento de anulación requiere teléfono en el bloque documento. Actualice el teléfono del cliente o de la empresa antes de anular.'
-    );
-
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!documentEmail) {
-    const error = new Error(
-      'No se puede anular el DTE porque el evento de anulación requiere correo electrónico válido en el bloque documento. Actualice el correo del cliente o de la empresa antes de anular.'
-    );
-
-    error.statusCode = 400;
-    throw error;
-  }
-
   return {
     identificacion: {
-      version: getInvalidationEventVersion(),
+      version: acceptedEvent?.identificacion?.version || getInvalidationEventVersion(),
       ambiente: getEnvironmentCode(company.environment),
       codigoGeneracion: cleanString(invoice.invalidationGenerationCode),
-      fecAnula: formatDate(invalidationDate),
-      horAnula: formatTime(invalidationDate)
+      fecAnula: eventDate,
+      horAnula: eventTime
     },
     emisor: {
       nit: cleanDigits(company.nit),
@@ -1633,18 +1651,18 @@ const buildInvalidationJson = (invoice) => {
       correo: cleanString(company.email || process.env.SMTP_FROM_EMAIL || 'facturacion@correo.com')
     },
     documento: {
-      tipoDte: String(invoice.documentTypeCode || '').padStart(2, '0'),
-      codigoGeneracion: cleanString(invoice.generationCode),
+      tipoDte: context.documentTypeCode,
+      codigoGeneracion: cleanString(context.generationCode),
       selloRecibido: cleanString(invoice.receptionSeal),
-      numeroControl: cleanString(invoice.controlNumber),
-      fecEmi: formatDate(invoice.issuedAt),
+      numeroControl: cleanString(context.controlNumber),
+      fecEmi: context.date,
       montoIva: getOfficialTotalIva(invoice),
       codigoGeneracionR: null,
-      tipoDocumento: customerDocumentType,
-      numDocumento: customerDocumentNumber,
-      nombre: cleanString(customer.name),
-      telefono: documentPhone,
-      correo: documentEmail
+      tipoDocumento: receiverType,
+      numDocumento: receiverNumber,
+      nombre: hasOriginal ? originalReceiver?.nombre || null : cleanString(customer.name),
+      telefono: hasOriginal ? originalReceiver?.telefono || null : documentPhone,
+      correo: hasOriginal ? originalReceiver?.correo || null : documentEmail
     },
     motivo: {
       tipoAnulacion: getInvalidationTypeCode(),
@@ -1713,13 +1731,41 @@ const buildOfficialStandardDteJson = (invoice) => {
   return dte;
 };
 
-const buildOfficialInvalidationJson = (invoice) => {
-  const eventJson = sanitizeOfficialValue(buildInvalidationJson(invoice));
+const buildOfficialInvalidationJson = (invoice, options = {}) => {
+  const internal = sanitizeOfficialValue(buildInvalidationJson(invoice, options));
+  const { identificacion, emisor, documento, motivo } = internal;
+  const original = getOriginalDocumentContext(invoice, options.originalDte).original;
+  // V3 cambia fecAnula/horAnula por fecEmi/horEmi y no admite los campos auxiliares de V2.
+  return {
+    identificacion: { version: 3, ambiente: identificacion.ambiente,
+      codigoGeneracion: identificacion.codigoGeneracion, fecEmi: identificacion.fecAnula,
+      horEmi: identificacion.horAnula, fusion: null },
+    emisor: { nit: emisor.nit, nombre: original?.emisor?.nombre || emisor.nombre,
+      codEstableMH: emisor.codEstableMH || original?.emisor?.codEstableMH || null,
+      codEstable: emisor.codEstable || null,
+      codPuntoVentaMH: emisor.codPuntoVentaMH || original?.emisor?.codPuntoVentaMH || null,
+      codPuntoVenta: emisor.codPuntoVenta || null,
+      telefono: original?.emisor?.telefono || emisor.telefono,
+      correo: original?.emisor?.correo || emisor.correo },
+    documento: { tipoDte: documento.tipoDte, codigoGeneracion: documento.codigoGeneracion,
+      selloRecibido: documento.selloRecibido, numeroControl: documento.numeroControl,
+      fecEmi: documento.fecEmi, codigoGeneracionR: documento.codigoGeneracionR,
+      tipoDocumento: documento.tipoDocumento, numDocumento: documento.numDocumento,
+      nombre: documento.nombre, telefono: documento.telefono, correo: documento.correo },
+    motivo
+  };
+};
 
-  delete eventJson.metadataSistema;
-  delete eventJson.selloAnulacion;
-
-  return eventJson;
+const buildInvalidationFileJson = (invoice, options = {}) => {
+  const signedJws = invoice.invalidationSignedJws;
+  const json = signedJws ? decodeSignedJson(signedJws) : buildOfficialInvalidationJson(invoice, options);
+  if (signedJws && (String(json.documento?.codigoGeneracion || '').toUpperCase() !== String(invoice.generationCode || '').toUpperCase()
+    || cleanDigits(json.emisor?.nit) !== cleanDigits(invoice.company?.nit))) {
+    const error = new Error('La invalidación firmada no corresponde al documento o emisor solicitado.');
+    error.statusCode = 400; throw error;
+  }
+  return { ...json, ...(signedJws ? { firmaElectronica: signedJws } : {}),
+    ...(invoice.invalidationReceptionSeal ? { selloRecibido: invoice.invalidationReceptionSeal } : {}) };
 };
 
 const buildDteFileJson = (invoice) => {
@@ -1780,13 +1826,15 @@ const getDteJsonByInvoiceId = async ({ id, user, type = 'document' }) => {
       throw error;
     }
 
-    return buildInvalidationJson(invoice);
+    const originalDte = invoice.invalidationSignedJws ? null : await getOriginalDteForInvalidation(invoice);
+    return buildInvalidationFileJson(invoice, { originalDte });
   }
 
   return buildDteFileJson(invoice);
 };
 
 module.exports = {
+  getOriginalDteForInvalidation,
   getDteJsonByInvoiceId,
   buildStandardDteJson,
   buildOfficialStandardDteJson,

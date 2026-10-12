@@ -2610,8 +2610,10 @@ const invalidateInvoiceReal = async ({ id, user, reason }) => {
     throw error;
   }
 
-  const deadlineValidation = invalidationDeadlineService.validateInvalidationDeadline(invoice);
+  const dteJsonService = require('../dte/dte-json.service');
+  const originalDte = await dteJsonService.getOriginalDteForInvalidation(invoice);
   const invalidatedAt = new Date();
+  const deadlineValidation = invalidationDeadlineService.validateInvalidationDeadline(invoice, invalidatedAt, { originalDte });
   const invalidationGenerationCode = uuidv4().toUpperCase();
   const cleanReason = reason.trim();
 
@@ -2622,9 +2624,7 @@ const invalidateInvoiceReal = async ({ id, user, reason }) => {
     invalidationDeadlineAt: deadlineValidation.deadlineAt
   });
 
-  const dteJsonService = require('../dte/dte-json.service');
-
-  const officialInvalidationJson = dteJsonService.buildOfficialInvalidationJson(invoice);
+  const officialInvalidationJson = dteJsonService.buildOfficialInvalidationJson(invoice, { originalDte });
 
   try {
     const signed = await dteSignerService.signDteJson({
