@@ -331,7 +331,8 @@ const formatReceiverDocumentNumber = (documentType, documentNumber) => {
   return rawValue.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 };
 
-const getInvalidationEventVersion = () => 3;
+// Compatibilidad con el validador V2 seleccionado en la respuesta MH 096.
+const getInvalidationEventVersion = () => 2;
 
 const getInvalidationTypeCode = () => 2; // Este formulario rescinde la operación; no es la versión del evento.
 
@@ -1549,6 +1550,35 @@ const getOriginalDteForInvalidation = async (invoice) => {
   }
 };
 
+const getInvalidationTotalIva = (invoice, original) => {
+  const code = original?.identificacion?.tipoDte || invoice.documentTypeCode;
+  if (['11', '14'].includes(code)) return 0;
+  const summary = original?.resumen;
+  let amount = summary?.totalIva;
+  if (amount === undefined || amount === null) {
+    const ivaTributes = Array.isArray(summary?.tributos)
+      ? summary.tributos.filter(tribute => String(tribute.codigo) === IVA_TRIBUTE_CODE) : [];
+    if (ivaTributes.length) {
+      if (ivaTributes.some(tribute => tribute.valor === null || tribute.valor === undefined
+        || !Number.isFinite(Number(tribute.valor)) || Number(tribute.valor) < 0)) {
+        const error = new Error('El IVA del DTE original no es válido. Recupere el JSON aceptado antes de anularlo.');
+        error.statusCode = 400; throw error;
+      }
+      amount = ivaTributes.reduce((sum, tribute) => sum + Number(tribute.valor), 0);
+    } else if (summary && Object.prototype.hasOwnProperty.call(summary, 'tributos')
+      && (summary.tributos === null || Array.isArray(summary.tributos))) {
+      amount = 0;
+    }
+  }
+  if (amount === undefined || amount === null) return getOfficialTotalIva(invoice);
+  const total = Number(amount);
+  if (!Number.isFinite(total) || total < 0) {
+    const error = new Error('El IVA del DTE original no es válido. Recupere el JSON aceptado antes de anularlo.');
+    error.statusCode = 400; throw error;
+  }
+  return round2(total);
+};
+
 const buildInvalidationJson = (invoice, { originalDte = null } = {}) => {
   const company = invoice.company || {};
   const customer = invoice.customer || {};
@@ -1656,7 +1686,7 @@ const buildInvalidationJson = (invoice, { originalDte = null } = {}) => {
       selloRecibido: cleanString(invoice.receptionSeal),
       numeroControl: cleanString(context.controlNumber),
       fecEmi: context.date,
-      montoIva: getOfficialTotalIva(invoice),
+      montoIva: getInvalidationTotalIva(invoice, context.original),
       codigoGeneracionR: null,
       tipoDocumento: receiverType,
       numDocumento: receiverNumber,
@@ -1735,12 +1765,14 @@ const buildOfficialInvalidationJson = (invoice, options = {}) => {
   const internal = sanitizeOfficialValue(buildInvalidationJson(invoice, options));
   const { identificacion, emisor, documento, motivo } = internal;
   const original = getOriginalDocumentContext(invoice, options.originalDte).original;
-  // V3 cambia fecAnula/horAnula por fecEmi/horEmi y no admite los campos auxiliares de V2.
+  // El cuerpo firmado y el sobre de transmisión deben usar la misma versión V2.
   return {
-    identificacion: { version: 3, ambiente: identificacion.ambiente,
-      codigoGeneracion: identificacion.codigoGeneracion, fecEmi: identificacion.fecAnula,
-      horEmi: identificacion.horAnula, fusion: null },
+    identificacion: { version: getInvalidationEventVersion(), ambiente: identificacion.ambiente,
+      codigoGeneracion: identificacion.codigoGeneracion, fecAnula: identificacion.fecAnula,
+      horAnula: identificacion.horAnula },
     emisor: { nit: emisor.nit, nombre: original?.emisor?.nombre || emisor.nombre,
+      tipoEstablecimiento: emisor.tipoEstablecimiento,
+      nomEstablecimiento: emisor.nomEstablecimiento,
       codEstableMH: emisor.codEstableMH || original?.emisor?.codEstableMH || null,
       codEstable: emisor.codEstable || null,
       codPuntoVentaMH: emisor.codPuntoVentaMH || original?.emisor?.codPuntoVentaMH || null,
@@ -1749,7 +1781,8 @@ const buildOfficialInvalidationJson = (invoice, options = {}) => {
       correo: original?.emisor?.correo || emisor.correo },
     documento: { tipoDte: documento.tipoDte, codigoGeneracion: documento.codigoGeneracion,
       selloRecibido: documento.selloRecibido, numeroControl: documento.numeroControl,
-      fecEmi: documento.fecEmi, codigoGeneracionR: documento.codigoGeneracionR,
+      fecEmi: documento.fecEmi, montoIva: documento.montoIva,
+      codigoGeneracionR: documento.codigoGeneracionR,
       tipoDocumento: documento.tipoDocumento, numDocumento: documento.numDocumento,
       nombre: documento.nombre, telefono: documento.telefono, correo: documento.correo },
     motivo
