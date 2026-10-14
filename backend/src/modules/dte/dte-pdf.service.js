@@ -1063,6 +1063,13 @@ const getDtePdfByInvoiceId = async ({ id, user, type = 'document' }) => {
   const invoice = await invoicesService.getInvoiceById(id, {
     user
   });
+  if (type === 'invalidation') {
+    if (invoice.status !== 'ANULADO') { const error = new Error('Solo se puede descargar una invalidación aceptada'); error.statusCode = 409; throw error; }
+    const data = require('./dte-file.service').buildSignedFile(invoice.invalidationSignedJws, invoice.invalidationReceptionSeal, () => require('./dte-json.service').buildOfficialInvalidationJson(invoice));
+    return require('./dte-generic-pdf.service').buildFiscalPdf(data, 'Evento de Invalidación');
+  }
+  if (invoice.officialDraftJson && type !== 'invalidation') return require('./dte-generic-pdf.service').buildFiscalPdf(require('./dte-file.service').buildSignedFile(invoice.signedJws, invoice.receptionSeal, () => invoice.officialDraftJson), invoice.documentTypeName);
+
 
   if (type !== 'invalidation') {
     const importedArtifact = await invoicesService.findHistoricalImportArtifactForInvoice(invoice);

@@ -16,11 +16,50 @@ import { elSalvadorLocations } from '../data/elSalvadorLocations';
 import { useAuth } from '../context/AuthContext';
 
 const documentTypeOptions = [
-  { code: '01', name: 'Factura de Consumidor Final' },
-  { code: '03', name: 'Comprobante de Crédito Fiscal' },
-  { code: '05', name: 'Nota de Crédito' },
-  { code: '11', name: 'Factura de Exportación' },
-  { code: '14', name: 'Factura de Sujeto Excluido' }
+  {
+    "code": "01",
+    "name": "Factura de Consumidor Final"
+  },
+  {
+    "code": "03",
+    "name": "Comprobante de Crédito Fiscal"
+  },
+  {
+    "code": "04",
+    "name": "Nota de Remisión"
+  },
+  {
+    "code": "05",
+    "name": "Nota de Crédito"
+  },
+  {
+    "code": "06",
+    "name": "Nota de Débito"
+  },
+  {
+    "code": "07",
+    "name": "Comprobante de Retención"
+  },
+  {
+    "code": "08",
+    "name": "Comprobante de Liquidación"
+  },
+  {
+    "code": "09",
+    "name": "Documento Contable de Liquidación"
+  },
+  {
+    "code": "11",
+    "name": "Factura de Exportación"
+  },
+  {
+    "code": "14",
+    "name": "Factura de Sujeto Excluido"
+  },
+  {
+    "code": "15",
+    "name": "Comprobante de Donación"
+  }
 ];
 
 const initialForm = {
@@ -61,6 +100,7 @@ const initialForm = {
   municipalityCode: '',
   municipalityName: '',
   addressComplement: '',
+  allowedEventTypes: [],
   allowedDocumentTypes: ['01', '03'],
   usesFuelTaxes: false,
   allowFutureInvoiceDates: false,
@@ -170,6 +210,7 @@ function CompanySettingsPage() {
           municipalityCode: company.municipalityCode || '',
           municipalityName: company.municipalityName || '',
           addressComplement: company.addressComplement || '',
+          allowedEventTypes: company.allowedEventTypes || [],
           allowedDocumentTypes: company.allowedDocumentTypes || ['01', '03'],
           usesFuelTaxes: Boolean(company.usesFuelTaxes),
           allowFutureInvoiceDates: Boolean(company.allowFutureInvoiceDates),
@@ -477,9 +518,7 @@ function CompanySettingsPage() {
     if (!form.municipalityCode.trim()) return 'Seleccione el municipio';
     if (!form.addressComplement.trim()) return 'La dirección es obligatoria';
 
-    if (!form.allowedDocumentTypes || form.allowedDocumentTypes.length === 0) {
-      return 'Seleccione al menos un tipo de documento que la empresa podrá emitir';
-    }
+
 
     if (form.smtpPassword.trim() && !form.smtpUser.trim()) {
       return 'Ingrese el correo SMTP del contribuyente para guardar la contraseña de aplicación';
@@ -529,6 +568,7 @@ function CompanySettingsPage() {
       email: form.email.trim(),
       phone: form.phone.trim(),
       addressComplement: form.addressComplement.trim(),
+      allowedEventTypes: form.allowedEventTypes || [],
       allowedDocumentTypes: form.allowedDocumentTypes || ['01', '03'],
       usesFuelTaxes: Boolean(form.usesFuelTaxes),
       allowFutureInvoiceDates: Boolean(form.allowFutureInvoiceDates)
@@ -1093,7 +1133,7 @@ function CompanySettingsPage() {
                   >
                     <input
                       type="checkbox"
-                      checked={form.allowedDocumentTypes.includes(doc.code)}
+                      disabled={!user?.isProgrammerAdmin} checked={form.allowedDocumentTypes.includes(doc.code)}
                       onChange={() => handleDocumentTypeChange(doc.code)}
                       className="w-4 h-4"
                     />
@@ -1102,6 +1142,15 @@ function CompanySettingsPage() {
                     </span>
                   </label>
                 ))}
+                  <p className="col-span-full text-sm text-slate-600">Habilite únicamente los tipos autorizados por Hacienda para este contribuyente. Los nuevos tipos comienzan deshabilitados.</p>
+                  {[{code:'17',name:'Evento de Operaciones Especiales'},{code:'18',name:'Evento de Retorno'}].map(event => (
+                    <label key={event.code} className="flex items-center gap-2 rounded-lg border p-3">
+                      <input type="checkbox" disabled={!user?.isProgrammerAdmin} checked={(form.allowedEventTypes || []).includes(event.code)}
+                        onChange={() => setForm(prev => ({...prev, allowedEventTypes: (prev.allowedEventTypes || []).includes(event.code) ? prev.allowedEventTypes.filter(code => code !== event.code) : [...(prev.allowedEventTypes || []), event.code]}))} />
+                      {event.name}
+                    </label>
+                  ))}
+
               </div>
             </section>
 

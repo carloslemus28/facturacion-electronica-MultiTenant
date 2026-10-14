@@ -693,6 +693,7 @@ const buildCompanyPayloadFromModel = (company) => {
     municipalityCode: company.municipalityCode,
     municipalityName: company.municipalityName,
     addressComplement: company.addressComplement,
+    allowedEventTypes: company.allowedEventTypes || [],
     allowedDocumentTypes: company.allowedDocumentTypes || DEFAULT_ALLOWED_DOCUMENT_TYPES,
     allowFutureInvoiceDates: Boolean(company.allowFutureInvoiceDates)
   };
@@ -975,6 +976,9 @@ const validateRelatedInvoiceForCreditNote = async ({ relatedInvoiceId, user, tra
 const createGeneratedInvoice = async ({ data, user }) => {
   const currentUser = await resolveUserContext(user);
 
+  if (require('../dte/dte-draft.service').SPECIAL_TYPES.includes(String(data.documentTypeCode))) {
+    const error = new Error('Use el formulario de Documentos adicionales para este tipo de DTE'); error.statusCode = 400; throw error;
+  }
   validateInvoiceData(data);
 
   if (!currentUser.company || !currentUser.pointOfSale) {
@@ -1220,6 +1224,9 @@ const createGeneratedInvoice = async ({ data, user }) => {
 const updateGeneratedInvoice = async ({ id, data, user }) => {
   const currentUser = await resolveUserContext(user);
 
+  if (require('../dte/dte-draft.service').SPECIAL_TYPES.includes(String(data.documentTypeCode))) {
+    const error = new Error('Use el formulario de Documentos adicionales para este tipo de DTE'); error.statusCode = 400; throw error;
+  }
   validateInvoiceData(data);
 
   const existingInvoice = await Invoice.findOne({
@@ -1249,6 +1256,8 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
       }
     ]
   });
+  if (existingInvoice?.officialDraftJson) { const error = new Error('Edite este borrador desde Documentos adicionales'); error.statusCode = 409; throw error; }
+
 
   await validateInvoiceVisibility({
     invoice: existingInvoice,
@@ -2207,6 +2216,7 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
   try {
     // Esta validación se ejecuta antes de firmar o transmitir. Si falla, el
     // catch guarda el error y conserva el DTE en GENERADO.
+    require('../dte/dte-schema.service').assertEnabled(invoice.company, invoice.documentTypeCode);
     const officialDteJson = dteJsonService.buildOfficialStandardDteJson(invoice);
 
     const signed = await dteSignerService.signDteJson({
@@ -2610,6 +2620,8 @@ const invalidateInvoiceReal = async ({ id, user, reason }) => {
     throw error;
   }
 
+  const acceptedReturn = await require('../dte/dte-event.model').findOne({where:{companyId:invoice.companyId,sourceInvoiceId:invoice.id,eventTypeCode:'18',status:'ACEPTADO'}});
+  if (acceptedReturn) { const error=new Error('Primero debe invalidar el Evento de Retorno aceptado de este DTE'); error.statusCode=409; throw error; }
   const dteJsonService = require('../dte/dte-json.service');
   const originalDte = await dteJsonService.getOriginalDteForInvalidation(invoice);
   const invalidatedAt = new Date();
@@ -2731,6 +2743,7 @@ const invalidateInvoiceReal = async ({ id, user, reason }) => {
 };
 
 module.exports = {
+  resolveUserContext,
   findHistoricalImportArtifactForInvoice,
   createGeneratedInvoice,
   updateGeneratedInvoice,

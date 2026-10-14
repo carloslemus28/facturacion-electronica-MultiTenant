@@ -1,19 +1,20 @@
 {
   "name": "facturacion-electronica-sv-backend",
   "version": "1.0.0",
-  "description": "Backend para sistema de facturación electrónica de El Salvador",
+  "description": "Backend para sistema de facturaciÃ³n electrÃ³nica de El Salvador",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-      "seed:test:fcf": "node scripts/02-seed-fcf-dinamico.js",
-  "seed:test:exportacion": "node scripts/03-seed-exportacion-dinamico.js",
-  "seed:test:ccf": "node scripts/04-seed-ccf-dinamico.js",
-  "seed:test:notas-credito": "node scripts/09-seed-notas-credito-dinamico.js",
-  "seed:test:fsee": "node scripts/10-seed-fsee-dinamico.js",
-  "seed:test:nre": "node scripts/12-seed-nota-remision.js",
-  "seed:test:reset": "node scripts/11-reset-total-pruebas-keep-admin.js"
+    "seed:test:fcf": "node scripts/02-seed-fcf-dinamico.js",
+    "seed:test:exportacion": "node scripts/03-seed-exportacion-dinamico.js",
+    "seed:test:ccf": "node scripts/04-seed-ccf-dinamico.js",
+    "seed:test:notas-credito": "node scripts/09-seed-notas-credito-dinamico.js",
+    "seed:test:fsee": "node scripts/10-seed-fsee-dinamico.js",
+    "seed:test:nre": "node scripts/12-seed-nota-remision.js",
+    "seed:test:reset": "node scripts/11-reset-total-pruebas-keep-admin.js",
+    "test:dte-v2": "node --test tests/dte-v2.test.js tests/dte-v2.integration.test.js"
   },
   "keywords": [
     "facturacion-electronica",
@@ -23,7 +24,7 @@
     "express",
     "mysql"
   ],
-  "author": "Carlos Eduardo Lemus Zelidón",
+  "author": "Carlos Eduardo Lemus ZelidÃ³n",
   "license": "MIT",
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -41,7 +42,9 @@
     "pdfkit": "^0.17.2",
     "qrcode": "^1.5.4",
     "sequelize": "^6.37.7",
-    "uuid": "^14.0.0"
+    "uuid": "^14.0.0",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"

@@ -25,7 +25,7 @@ const validateOriginalDocument = (invoice, original) => {
       fail('El JSON original no corresponde a este DTE. Revise su código de generación, número de control y tipo.');
     }
   }
-  if (invoice.company?.nit && digits(invoice.company.nit) !== digits(original.emisor?.nit)) {
+  if (invoice.company?.nit && digits(invoice.company.nit) !== digits(original.emisor?.nit || original.emisor?.numDocumento)) {
     fail('El JSON original pertenece a otro emisor. No se puede utilizar para anular este DTE.');
   }
   return original;

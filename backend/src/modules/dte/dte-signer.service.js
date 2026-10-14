@@ -49,6 +49,7 @@ const parseSignerErrorMessage = (body) => {
 };
 
 const signDteJson = async ({ company, nit, dteJson }) => {
+  require('./dte-schema.service').validateFiscalJson(dteJson);
   const config = await getSignerConfig(company);
   const companyIdentifier = cleanDigits(company?.nit);
   const requestedIdentifier = cleanDigits(nit);

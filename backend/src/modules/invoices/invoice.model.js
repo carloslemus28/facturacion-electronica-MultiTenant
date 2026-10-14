@@ -57,6 +57,7 @@ const Invoice = sequelize.define('Invoice', {
     field: 'generation_code'
   },
 
+  officialDraftJson: { type: DataTypes.JSON, allowNull: true, field: 'official_draft_json' },
   signedJws: {
     type: DataTypes.TEXT('long'),
     allowNull: true,

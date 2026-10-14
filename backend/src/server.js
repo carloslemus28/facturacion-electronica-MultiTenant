@@ -49,6 +49,7 @@ const startServer = async () => {
   // esta llamada garantiza que cualquier ajuste de compatibilidad quede aplicado.
   await ensureRuntimeSchema();
 
+  await require('./modules/dte/dte-v2-migration')();
   await seedSecurityData();
 
   httpServer = app.listen(PORT, '0.0.0.0', () => {

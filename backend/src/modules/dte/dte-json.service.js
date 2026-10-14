@@ -238,18 +238,7 @@ const formatTime = (value) => {
     : null;
 };
 
-const getDteVersion = (documentTypeCode) => {
-  // Versiones vigentes según JSON Schemas publicados por MH el 11/08/2026.
-  const versions = {
-    '01': 2,
-    '03': 4,
-    '05': 4,
-    '11': 3,
-    '14': 2
-  };
-
-  return versions[String(documentTypeCode)] || 1;
-};
+const getDteVersion = documentTypeCode => require('./dte-schema.service').getVersion(String(documentTypeCode));
 
 const getOperationConditionCode = (operationCondition) => {
   return OPERATION_CONDITIONS[operationCondition] || OPERATION_CONDITIONS.CONTADO;
@@ -332,7 +321,7 @@ const formatReceiverDocumentNumber = (documentType, documentNumber) => {
 };
 
 // Compatibilidad con el validador V2 seleccionado en la respuesta MH 096.
-const getInvalidationEventVersion = () => 2;
+const getInvalidationEventVersion = () => 3;
 
 const getInvalidationTypeCode = () => 2; // Este formulario rescinde la operación; no es la versión del evento.
 
@@ -370,7 +359,7 @@ const isCreditFiscalDocument = (documentTypeCode) => {
 };
 
 const isCreditNoteDocument = (documentTypeCode) => {
-  return String(documentTypeCode) === DOCUMENT_TYPE_CODES.NOTA_CREDITO;
+  return ['05', '06'].includes(String(documentTypeCode));
 };
 
 const isExportInvoice = (documentTypeCode) => {
@@ -1754,7 +1743,21 @@ const sanitizeOfficialValue = (value) => {
 };
 
 const buildOfficialStandardDteJson = (invoice) => {
-  const dte = sanitizeOfficialValue(buildStandardDteJson(invoice));
+  if (invoice.officialDraftJson) {
+    const data = structuredClone(invoice.officialDraftJson);
+    const id = data.identificacion || {};
+    if (String(id.tipoDte) !== String(invoice.documentTypeCode) || id.codigoGeneracion !== invoice.generationCode || id.numeroControl !== invoice.controlNumber) {
+      const error = new Error('La identificación del borrador no corresponde al documento almacenado'); error.statusCode = 409; throw error;
+    }
+    const issuerId = String(data.emisor?.nit || data.emisor?.numDocumento || '').replace(/\D/g, '');
+    if (issuerId !== String(invoice.company?.nit || '').replace(/\D/g, '') || id.ambiente !== (invoice.company?.environment === 'PRODUCTION' ? '01' : '00')) {
+      const error = new Error('El emisor o ambiente cambió después de guardar el borrador. Revise y guarde nuevamente el documento'); error.statusCode = 409; throw error;
+    }
+    require('./dte-schema.service').validateFiscalJson(data);
+    require('./dte-draft.service').validateTotals(data);
+    return data;
+  }
+  const dte = require('./dte-extended-json.service').adaptDocument(invoice, sanitizeOfficialValue(buildStandardDteJson(invoice)));
 
   dte.apendice = null;
 
@@ -1762,31 +1765,25 @@ const buildOfficialStandardDteJson = (invoice) => {
 };
 
 const buildOfficialInvalidationJson = (invoice, options = {}) => {
-  const internal = sanitizeOfficialValue(buildInvalidationJson(invoice, options));
-  const { identificacion, emisor, documento, motivo } = internal;
-  const original = getOriginalDocumentContext(invoice, options.originalDte).original;
-  // El cuerpo firmado y el sobre de transmisión deben usar la misma versión V2.
-  return {
-    identificacion: { version: getInvalidationEventVersion(), ambiente: identificacion.ambiente,
-      codigoGeneracion: identificacion.codigoGeneracion, fecAnula: identificacion.fecAnula,
-      horAnula: identificacion.horAnula },
-    emisor: { nit: emisor.nit, nombre: original?.emisor?.nombre || emisor.nombre,
-      tipoEstablecimiento: emisor.tipoEstablecimiento,
-      nomEstablecimiento: emisor.nomEstablecimiento,
-      codEstableMH: emisor.codEstableMH || original?.emisor?.codEstableMH || null,
-      codEstable: emisor.codEstable || null,
-      codPuntoVentaMH: emisor.codPuntoVentaMH || original?.emisor?.codPuntoVentaMH || null,
-      codPuntoVenta: emisor.codPuntoVenta || null,
-      telefono: original?.emisor?.telefono || emisor.telefono,
-      correo: original?.emisor?.correo || emisor.correo },
+  const legacy = sanitizeOfficialValue(buildInvalidationJson(invoice, options));
+  const { identificacion, emisor, documento, motivo } = legacy;
+  const output = {
+    identificacion: { version: 3, ambiente: identificacion.ambiente,
+      codigoGeneracion: identificacion.codigoGeneracion,
+      fecEmi: identificacion.fecEmi || identificacion.fecAnula,
+      horEmi: identificacion.horEmi || identificacion.horAnula, fusion: null },
+    emisor: { nit: emisor.nit, nombre: emisor.nombre,
+      codEstableMH: emisor.codEstableMH ?? null, codEstable: emisor.codEstable ?? null,
+      codPuntoVentaMH: emisor.codPuntoVentaMH ?? null, codPuntoVenta: emisor.codPuntoVenta ?? null,
+      telefono: emisor.telefono, correo: emisor.correo },
     documento: { tipoDte: documento.tipoDte, codigoGeneracion: documento.codigoGeneracion,
       selloRecibido: documento.selloRecibido, numeroControl: documento.numeroControl,
-      fecEmi: documento.fecEmi, montoIva: documento.montoIva,
-      codigoGeneracionR: documento.codigoGeneracionR,
-      tipoDocumento: documento.tipoDocumento, numDocumento: documento.numDocumento,
-      nombre: documento.nombre, telefono: documento.telefono, correo: documento.correo },
+      fecEmi: documento.fecEmi, codigoGeneracionR: documento.codigoGeneracionR ?? null,
+      tipoDocumento: documento.tipoDocumento ?? null, numDocumento: documento.numDocumento ?? null,
+      nombre: documento.nombre ?? null, telefono: documento.telefono ?? null, correo: documento.correo ?? null },
     motivo
   };
+  return require('./dte-schema.service').validateFiscalJson(output, 'invalidation');
 };
 
 const buildInvalidationFileJson = (invoice, options = {}) => {
@@ -1801,32 +1798,10 @@ const buildInvalidationFileJson = (invoice, options = {}) => {
     ...(invoice.invalidationReceptionSeal ? { selloRecibido: invoice.invalidationReceptionSeal } : {}) };
 };
 
-const buildDteFileJson = (invoice) => {
-  const signedJws = cleanString(invoice?.signedJws);
-  let dte = null;
-
-  if (signedJws) {
-    const parts = signedJws.split('.');
-    if (parts.length >= 2) {
-      try {
-        const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-        const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
-        const decoded = Buffer.from(`${normalized}${padding}`, 'base64').toString('utf8');
-        const payload = JSON.parse(decoded);
-        if (payload?.identificacion?.tipoDte) dte = payload;
-      } catch {
-        dte = null;
-      }
-    }
-  }
-
-  if (!dte) dte = buildOfficialStandardDteJson(invoice);
-
-  const output = { ...dte };
-  if (signedJws) output.firmaElectronica = signedJws;
-  if (invoice?.receptionSeal) output.selloRecibido = cleanString(invoice.receptionSeal);
-  return output;
-};
+const buildDteFileJson = invoice => require('./dte-file.service').buildSignedFile(
+  cleanString(invoice?.signedJws), cleanString(invoice?.receptionSeal),
+  () => buildOfficialStandardDteJson(invoice)
+);
 
 const getDteJsonByInvoiceId = async ({ id, user, type = 'document' }) => {
   const invoice = await invoicesService.getInvoiceById(id, {

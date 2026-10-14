@@ -42,9 +42,7 @@ const getTransmissionConfig = (company) => {
   const contingencyUrl = resolveOfficialEndpoint({ configured: envValue('CONTINGENCIA_DTE_URL', 'MH_CONTINGENCIA_DTE_URL') || process.env.MH_CONTINGENCIA_URL, expected: official.contingencyUrl, label: 'La URL de contingencia' });
   const consultationUrl = resolveOfficialEndpoint({ configured: envValue('CONSULTA_DTE_URL', 'MH_CONSULTA_DTE_URL'), expected: official.consultationUrl, label: 'La URL de Consulta DTE' });
   const eventReceptionUrl = envValue('RECEPCION_EVENTO_URL', 'MH_RECEPCION_EVENTO_URL');
-  const safeEventReceptionUrl = eventReceptionUrl && String(eventReceptionUrl).trim() !== receptionUrl
-    ? String(eventReceptionUrl).trim()
-    : null;
+  const safeEventReceptionUrl = resolveOfficialEndpoint({ configured: eventReceptionUrl, expected: receptionUrl, label: 'La URL de recepción de eventos' });
 
   return { receptionUrl, invalidationUrl, eventReceptionUrl: safeEventReceptionUrl, contingencyUrl, consultationUrl };
 };
@@ -220,7 +218,7 @@ const buildReceptionPayload = ({ invoice, officialDteJson, signedJws }) => {
 
 const buildEventPayload = ({ event, officialEventJson, signedJws }) => {
   const identificacion = officialEventJson?.identificacion || {};
-  const typeFieldName = process.env.MH_EVENT_PAYLOAD_TYPE_FIELD || 'tipoEvento';
+  const typeFieldName = 'tipoDte';
 
   const payload = {
     ambiente: identificacion.ambiente,
@@ -661,11 +659,7 @@ const transmitSignedEvent = async ({ event, company, officialEventJson, signedJw
     throw error;
   }
 
-  if (String(config.eventReceptionUrl).replace(/\/+$/, '') === String(config.receptionUrl).replace(/\/+$/, '')) {
-    const error = new Error('MH_RECEPCION_EVENTO_URL no puede reutilizar el endpoint de recepción DTE. Configure únicamente un endpoint de evento expresamente publicado por Hacienda.');
-    error.statusCode = 500;
-    throw error;
-  }
+
 
   const payload = buildEventPayload({
     event,

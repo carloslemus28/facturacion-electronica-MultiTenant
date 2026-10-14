@@ -44,6 +44,7 @@ const DteEvent = sequelize.define('DteEvent', {
     field: 'event_type_name'
   },
 
+  invalidationRecordJson: { type: DataTypes.JSON, allowNull: true, field: 'invalidation_record_json' },
   generationCode: {
     type: DataTypes.STRING(36),
     allowNull: false,

@@ -156,6 +156,7 @@ economicActivityName3: {
     field: 'address_complement'
   },
 
+  allowedEventTypes: { type: DataTypes.JSON, allowNull: true, field: 'allowed_event_types', defaultValue: [] },
   allowedDocumentTypes: {
     type: DataTypes.JSON,
     allowNull: false,

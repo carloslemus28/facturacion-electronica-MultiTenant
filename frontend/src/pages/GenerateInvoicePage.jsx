@@ -400,6 +400,7 @@ function GenerateInvoicePage() {
         };
       });
 
+      if (invoice.officialDraftJson) { window.location.assign(`/invoices/additional?id=${invoice.id}`); return; }
       setDocumentTypeCode(invoice.documentTypeCode || '01');
       setCustomerId(invoice.customerId ? String(invoice.customerId) : '');
       setRelatedInvoiceId(invoice.relatedInvoiceId ? String(invoice.relatedInvoiceId) : '');

@@ -61,6 +61,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/control-numbers', controlNumbersRoutes);
 app.use('/api/customers', customersRoutes);
 app.use('/api/products', productsRoutes);
+app.use('/api/fiscal-drafts', require('./modules/dte/dte-draft.routes'));
 app.use('/api/invoices', invoicesRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/dte-json', dteJsonRoutes);
@@ -115,7 +116,8 @@ app.use((error, req, res, next) => {
 
   res.status(statusCode).json({
     ok: false,
-    message: error.message || 'Error interno del servidor'
+    message: error.message || 'Error interno del servidor',
+    ...(error.validationErrors ? { validationErrors: error.validationErrors } : {})
   });
 });
 

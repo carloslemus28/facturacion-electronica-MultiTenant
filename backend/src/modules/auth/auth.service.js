@@ -146,6 +146,7 @@ const buildCompanyPayload = (company) => {
     municipalityCode: company.municipalityCode,
     municipalityName: company.municipalityName,
     addressComplement: company.addressComplement,
+    allowedEventTypes: company.allowedEventTypes || [],
     allowedDocumentTypes: company.allowedDocumentTypes || DEFAULT_ALLOWED_DOCUMENT_TYPES,
     allowFutureInvoiceDates: Boolean(company.allowFutureInvoiceDates)
   };
@@ -179,6 +180,7 @@ const buildAuthenticatedUser = async (user, roles, permissions, requestedCompany
 
   return {
     id: user.id,
+    isProgrammerAdmin: require('../../utils/programmer-admin').isProgrammerAdmin({ username: user.username, email: user.email, roles }),
     username: user.username,
     firstName: user.firstName,
     lastName: user.lastName,

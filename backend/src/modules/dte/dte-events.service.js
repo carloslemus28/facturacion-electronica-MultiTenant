@@ -26,7 +26,7 @@ const EVENT_TYPE_NAMES = {
 };
 
 const RETURN_ALLOWED_DOCUMENT_TYPES = ['01', '11', '14'];
-const CONTINGENCY_ALLOWED_DOCUMENT_TYPES = ['01', '03', '04', '05', '06', '11', '14'];
+const CONTINGENCY_ALLOWED_DOCUMENT_TYPES = ['01', '03', '04', '05', '06', '07', '08', '09', '11', '14', '15'];
 const IVA_RATE = 0.13;
 const IVA_FACTOR = 1.13;
 const IVA_TRIBUTE_CODE = '20';
@@ -809,6 +809,7 @@ const getEventById = async ({ id, user }) => {
 
 const createReturnEvent = async ({ data, user }) => {
   const currentUser = await resolveUserContext(user);
+  require('./dte-schema.service').assertEnabled(currentUser.company, '18');
   const sourceInvoiceId = getSourceInvoiceIdFromData(data);
 
   if (!sourceInvoiceId) {
@@ -924,6 +925,8 @@ const createReturnEvent = async ({ data, user }) => {
 
 const createSpecialOperationsEvent = async ({ data, user }) => {
   const currentUser = await resolveUserContext(user);
+  if (Number(currentUser.company.id) !== Number(currentUser.pointOfSale.companyId)) { const e=new Error('El punto de venta no pertenece al contribuyente seleccionado');e.statusCode=403;throw e; }
+  require('./dte-schema.service').assertEnabled(currentUser.company, '17');
 
   if (!Array.isArray(data.items) || data.items.length === 0) {
     const error = new Error('Debe agregar al menos un ítem al Evento de Operaciones Especiales');
@@ -1171,9 +1174,7 @@ const getEventJsonById = async ({ id, user, official = false }) => {
     user: currentUser
   });
 
-  return official
-    ? dteEventJsonService.buildOfficialEventJson(context)
-    : dteEventJsonService.buildEventJson(context);
+  return require('./dte-file.service').buildSignedFile(context.event.signedJws, context.event.receptionSeal, () => dteEventJsonService.buildOfficialEventJson(context));
 };
 
 const transmitEventToHacienda = async ({ id, user }) => {
@@ -1183,7 +1184,8 @@ const transmitEventToHacienda = async ({ id, user }) => {
     user: currentUser
   });
 
-let { event, company } = context;;
+let { event, company } = context;
+require('./dte-schema.service').assertEnabled(company, event.eventTypeCode);;
 
   if (!['GENERADO', 'FIRMADO', 'RECHAZADO'].includes(event.status)) {
     const error = new Error('Solo se pueden transmitir eventos en estado GENERADO, FIRMADO o RECHAZADO');

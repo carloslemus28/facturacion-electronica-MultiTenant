@@ -327,7 +327,7 @@ const sendInvoiceEmail = async ({ id, user, to, subject, message }) => {
   validateInvoiceStatusForEmail(invoice);
 
   const recipients = normalizeRecipients(to || [
-    invoice.customer?.email,
+    invoice.customer?.email || invoice.officialDraftJson?.receptor?.correo,
     invoice.customer?.secondaryEmail
   ]);
   const recipient = recipients.join(', ');

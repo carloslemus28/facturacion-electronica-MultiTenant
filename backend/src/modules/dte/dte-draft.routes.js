@@ -1,0 +1,9 @@
+const router=require('express').Router();
+const {authenticate,authorize}=require('../../middlewares/auth.middleware');
+const service=require('./dte-draft.service');
+router.use(authenticate,authorize('INVOICES_CREATE'));
+router.get('/',async(req,res,next)=>{try{res.json(await service.listTemplates(req.user));}catch(e){next(e);}});
+router.get('/:code',async(req,res,next)=>{try{res.json(await service.getTemplate(req.user,req.params.code));}catch(e){next(e);}});
+router.post('/:code',async(req,res,next)=>{try{res.status(201).json({ok:true,invoice:await service.saveDraft({user:req.user,code:req.params.code,data:req.body.document})});}catch(e){next(e);}});
+router.put('/:code/:id',async(req,res,next)=>{try{res.json({ok:true,invoice:await service.saveDraft({user:req.user,code:req.params.code,id:req.params.id,data:req.body.document})});}catch(e){next(e);}});
+module.exports=router;

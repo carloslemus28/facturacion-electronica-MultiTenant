@@ -58,7 +58,6 @@ const documentTypeNames = {
   '11': 'Exportación',
   '14': 'Sujeto Excluido'
 };
-const RETURN_EVENT_FEATURE_ENABLED = import.meta.env.VITE_RETURN_EVENT_FEATURE_ENABLED === 'true';
 
 const ITEMS_PER_PAGE = 15;
 const RETRANSMITTABLE_INVOICE_STATUSES = ['GENERADO', 'FIRMADO', 'RECHAZADO'];
@@ -119,6 +118,7 @@ const downloadBlob = (blob, fileName) => {
 
 function InvoicesPage() {
   const { user } = useAuth();
+  const RETURN_EVENT_FEATURE_ENABLED = (user?.company?.allowedEventTypes || []).includes('18');
   const isAdmin = user?.roles?.includes('ADMIN');
   const [invoices, setInvoices] = useState([]);
   const [selectedInvoice, setSelectedInvoice] = useState(null);

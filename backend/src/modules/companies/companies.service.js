@@ -9,7 +9,7 @@ const LOGO_MAX_SIZE_MB = Number(process.env.LOGO_MAX_SIZE_MB || 2);
 const LOGO_MAX_SIZE_BYTES = LOGO_MAX_SIZE_MB * 1024 * 1024;
 
 const DEFAULT_ALLOWED_DOCUMENT_TYPES = ['01', '03'];
-const VALID_DOCUMENT_TYPES = ['01', '03', '05', '11', '14'];
+const VALID_DOCUMENT_TYPES = ["01", "03", "04", "05", "06", "07", "08", "09", "11", "14", "15"];
 const VALID_ENVIRONMENTS = ['TEST', 'PRODUCTION'];
 
 const cleanDigits = (value) => String(value || '').replace(/\D/g, '');
@@ -59,7 +59,7 @@ const normalizeAllowedDocumentTypes = (allowedDocumentTypes) => {
     }
   }
 
-  if (!Array.isArray(source) || source.length === 0) {
+  if (!Array.isArray(source)) {
     return DEFAULT_ALLOWED_DOCUMENT_TYPES;
   }
 
@@ -70,7 +70,7 @@ const normalizeAllowedDocumentTypes = (allowedDocumentTypes) => {
       .filter((type) => VALID_DOCUMENT_TYPES.includes(type))
   )];
 
-  return normalized.length > 0 ? normalized : DEFAULT_ALLOWED_DOCUMENT_TYPES;
+  return normalized;
 };
 
 const validateLogoDataUrl = (logoDataUrl) => {
@@ -240,6 +240,9 @@ const buildCompanyData = (data, currentCompany = null) => {
     municipalityName: normalizeText(data.municipalityName ?? currentCompany?.municipalityName),
     addressComplement: normalizeText(data.addressComplement ?? currentCompany?.addressComplement),
 
+    allowedEventTypes: data.allowedEventTypes === undefined
+      ? (currentCompany?.allowedEventTypes || [])
+      : [...new Set((Array.isArray(data.allowedEventTypes) ? data.allowedEventTypes : []).map(String).filter(code => ['17', '18'].includes(code)))],
     allowedDocumentTypes: data.allowedDocumentTypes !== undefined
       ? normalizeAllowedDocumentTypes(data.allowedDocumentTypes)
       : normalizeAllowedDocumentTypes(currentCompany?.allowedDocumentTypes || DEFAULT_ALLOWED_DOCUMENT_TYPES),
