@@ -156,6 +156,8 @@ economicActivityName3: {
     field: 'address_complement'
   },
 
+  additionalDocumentsEnabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'additional_documents_enabled' },
+  electronicEventsEnabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'electronic_events_enabled' },
   allowedEventTypes: { type: DataTypes.JSON, allowNull: true, field: 'allowed_event_types', defaultValue: [] },
   allowedDocumentTypes: {
     type: DataTypes.JSON,

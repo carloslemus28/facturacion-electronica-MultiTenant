@@ -240,6 +240,8 @@ const buildCompanyData = (data, currentCompany = null) => {
     municipalityName: normalizeText(data.municipalityName ?? currentCompany?.municipalityName),
     addressComplement: normalizeText(data.addressComplement ?? currentCompany?.addressComplement),
 
+    additionalDocumentsEnabled: normalizeBoolean(data.additionalDocumentsEnabled, currentCompany?.additionalDocumentsEnabled ?? false),
+    electronicEventsEnabled: normalizeBoolean(data.electronicEventsEnabled, currentCompany?.electronicEventsEnabled ?? false),
     allowedEventTypes: data.allowedEventTypes === undefined
       ? (currentCompany?.allowedEventTypes || [])
       : [...new Set((Array.isArray(data.allowedEventTypes) ? data.allowedEventTypes : []).map(String).filter(code => ['17', '18'].includes(code)))],

@@ -118,7 +118,7 @@ const downloadBlob = (blob, fileName) => {
 
 function InvoicesPage() {
   const { user } = useAuth();
-  const RETURN_EVENT_FEATURE_ENABLED = (user?.company?.allowedEventTypes || []).includes('18');
+  const RETURN_EVENT_FEATURE_ENABLED = user?.company?.electronicEventsEnabled === true && (user?.company?.allowedEventTypes || []).includes('18');
   const isAdmin = user?.roles?.includes('ADMIN');
   const [invoices, setInvoices] = useState([]);
   const [selectedInvoice, setSelectedInvoice] = useState(null);

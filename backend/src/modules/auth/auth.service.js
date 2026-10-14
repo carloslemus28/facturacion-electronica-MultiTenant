@@ -146,6 +146,8 @@ const buildCompanyPayload = (company) => {
     municipalityCode: company.municipalityCode,
     municipalityName: company.municipalityName,
     addressComplement: company.addressComplement,
+    additionalDocumentsEnabled: Boolean(company.additionalDocumentsEnabled),
+    electronicEventsEnabled: Boolean(company.electronicEventsEnabled),
     allowedEventTypes: company.allowedEventTypes || [],
     allowedDocumentTypes: company.allowedDocumentTypes || DEFAULT_ALLOWED_DOCUMENT_TYPES,
     allowFutureInvoiceDates: Boolean(company.allowFutureInvoiceDates)

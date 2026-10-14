@@ -54,17 +54,22 @@ test('Migración deshabilita novedades una sola vez y conserva elecciones poster
   const columns={companies:{id:{},allowed_document_types:{}},invoices:{id:{}},dte_events:{id:{}}};
   const row={id:1,allowed_document_types:['01','03','04','05','06','07','08','09','11','14','15'],allowed_event_types:null};
   let alterations=0, updates=0;
-  const sequelize={getQueryInterface:()=>({describeTable:async table=>columns[table],addColumn:async(table,name)=>{columns[table][name]={};alterations++;}}),
+  const sequelize={getQueryInterface:()=>({describeTable:async table=>columns[table],addColumn:async(table,name,definition)=>{columns[table][name]=definition;alterations++;}}),
     transaction:async cb=>cb({}),query:async(sql,options)=>{
       if(sql.startsWith('SELECT'))return [row.allowed_event_types===null?[row]:[]];
       row.allowed_document_types=JSON.parse(options.replacements.documents);row.allowed_event_types=JSON.parse(options.replacements.events);updates++;
     }};
-  const migrate=load(path.join(s.dte,'dte-v2-migration.js'),{'sequelize':{DataTypes:{JSON:'JSON'}},'../../config/database':{sequelize}});
-  await migrate();assert.equal(updates,1);assert.equal(alterations,3);
+  const migrate=load(path.join(s.dte,'dte-v2-migration.js'),{'sequelize':{DataTypes:{JSON:'JSON',BOOLEAN:'BOOLEAN'}},'../../config/database':{sequelize}});
+  await migrate();assert.equal(updates,1);assert.equal(alterations,5);
   for(const code of ['07','08','09','15'])assert.ok(!row.allowed_document_types.includes(code));
   assert.deepEqual(row.allowed_event_types,[]);
+  for (const name of ['additional_documents_enabled','electronic_events_enabled']) {
+    assert.equal(columns.companies[name].defaultValue,false);
+    assert.equal(columns.companies[name].allowNull,false);
+    assert.equal(columns.companies[name].type,'BOOLEAN');
+  }
   row.allowed_document_types.push('07');row.allowed_event_types.push('18');
-  await migrate();assert.equal(updates,1);assert.equal(alterations,3);
+  await migrate();assert.equal(updates,1);assert.equal(alterations,5);
   assert.ok(row.allowed_document_types.includes('07'));assert.ok(row.allowed_event_types.includes('18'));
 });
 
@@ -80,4 +85,26 @@ test('Retorno y Operaciones Especiales generan invalidación v3 con el documento
     assert.equal(result.documento.tipoDte,code);assert.equal(result.documento.numeroControl,null);
     assert.equal(result.identificacion.fecEmi,json.identificacion.fecEmi);
   }
+});
+
+
+test('Navegación fiscal: oculta por defecto, independiente por contribuyente y respeta permisos', async () => {
+  const { pathToFileURL } = require('node:url');
+  const { canAccessFiscalModule } = await import(pathToFileURL(path.resolve(__dirname, '../../frontend/src/utils/fiscal-navigation.mjs')).href);
+  const permissions = ['INVOICES_CREATE','INVOICES_VIEW'];
+  const user = { permissions, company: {} };
+  assert.equal(canAccessFiscalModule(user,'additional'),false);
+  assert.equal(canAccessFiscalModule(user,'events'),false);
+  user.company.additionalDocumentsEnabled = true;
+  assert.equal(canAccessFiscalModule(user,'additional'),true);
+  assert.equal(canAccessFiscalModule(user,'events'),false);
+  user.company.electronicEventsEnabled = true;
+  assert.equal(canAccessFiscalModule(user,'events'),true);
+  assert.equal(canAccessFiscalModule({...user,permissions:[]},'additional'),false);
+  assert.equal(canAccessFiscalModule({...user,permissions:[]},'events'),false);
+  assert.equal(canAccessFiscalModule({...user,company:{}},'additional'),false);
+  user.company.additionalDocumentsEnabled = false;
+  assert.equal(canAccessFiscalModule(user,'additional'),false);
+  assert.equal(canAccessFiscalModule(user,'events'),true);
+  assert.equal(canAccessFiscalModule(null,'additional'),false);
 });

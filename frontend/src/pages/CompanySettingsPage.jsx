@@ -100,6 +100,8 @@ const initialForm = {
   municipalityCode: '',
   municipalityName: '',
   addressComplement: '',
+  additionalDocumentsEnabled: false,
+  electronicEventsEnabled: false,
   allowedEventTypes: [],
   allowedDocumentTypes: ['01', '03'],
   usesFuelTaxes: false,
@@ -210,6 +212,8 @@ function CompanySettingsPage() {
           municipalityCode: company.municipalityCode || '',
           municipalityName: company.municipalityName || '',
           addressComplement: company.addressComplement || '',
+          additionalDocumentsEnabled: Boolean(company.additionalDocumentsEnabled),
+          electronicEventsEnabled: Boolean(company.electronicEventsEnabled),
           allowedEventTypes: company.allowedEventTypes || [],
           allowedDocumentTypes: company.allowedDocumentTypes || ['01', '03'],
           usesFuelTaxes: Boolean(company.usesFuelTaxes),
@@ -568,6 +572,8 @@ function CompanySettingsPage() {
       email: form.email.trim(),
       phone: form.phone.trim(),
       addressComplement: form.addressComplement.trim(),
+      additionalDocumentsEnabled: Boolean(form.additionalDocumentsEnabled),
+      electronicEventsEnabled: Boolean(form.electronicEventsEnabled),
       allowedEventTypes: form.allowedEventTypes || [],
       allowedDocumentTypes: form.allowedDocumentTypes || ['01', '03'],
       usesFuelTaxes: Boolean(form.usesFuelTaxes),
@@ -1125,6 +1131,16 @@ function CompanySettingsPage() {
                 Tipos de DTE habilitados
               </h3>
 
+              <div className="mb-5 rounded-xl border bg-slate-50 p-4 space-y-3">
+                <h4 className="font-semibold">Opciones visibles para los usuarios</h4>
+                <p className="text-sm text-slate-600">Estas opciones comienzan ocultas. Active cada pantalla para este contribuyente y seleccione abajo los tipos de documentos autorizados. Los usuarios deben recargar la aplicación para ver los cambios.</p>
+                {[['additionalDocumentsEnabled', 'Mostrar Documentos adicionales'], ['electronicEventsEnabled', 'Mostrar Eventos electrónicos']].map(([key, label]) => (
+                  <label key={key} className="flex items-center gap-3">
+                    <input type="checkbox" disabled={!user?.isProgrammerAdmin} checked={Boolean(form[key])} onChange={event => setForm(prev => ({ ...prev, [key]: event.target.checked }))} />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
               <div className="grid md:grid-cols-2 gap-3">
                 {documentTypeOptions.map((doc) => (
                   <label

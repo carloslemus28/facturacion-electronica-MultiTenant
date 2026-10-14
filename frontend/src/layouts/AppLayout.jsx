@@ -1,3 +1,4 @@
+import { canAccessFiscalModule } from '../utils/fiscal-navigation.mjs';
 import {
   ArchiveRestore, Building2, Hash, FilePlus2, Files, FileSpreadsheet, FileText, LayoutDashboard,
   LogOut, Menu, PackagePlus, UserCircle, Users, UsersRound
@@ -60,8 +61,8 @@ function AppLayout() {
         <nav className="space-y-2 pb-8">
           <NavLink to="/dashboard" className={linkClass} onClick={() => setSidebarOpen(false)}><LayoutDashboard size={20} />Página Principal</NavLink>
           <NavLink to="/invoices/generate" className={linkClass} onClick={() => setSidebarOpen(false)}><FilePlus2 size={20} />Generar DTE</NavLink>
-          <NavLink to="/invoices/additional" className={linkClass} onClick={() => setSidebarOpen(false)}><FilePlus2 size={20} />Documentos adicionales</NavLink>
-          <NavLink to="/events" className={linkClass} onClick={() => setSidebarOpen(false)}><FilePlus2 size={20} />Eventos electrónicos</NavLink>
+          {canAccessFiscalModule(user, 'additional') && <NavLink to="/invoices/additional" className={linkClass} onClick={() => setSidebarOpen(false)}><FilePlus2 size={20} />Documentos adicionales</NavLink>}
+          {canAccessFiscalModule(user, 'events') && <NavLink to="/events" className={linkClass} onClick={() => setSidebarOpen(false)}><FilePlus2 size={20} />Eventos electrónicos</NavLink>}
           <NavLink to="/invoices" end className={linkClass} onClick={() => setSidebarOpen(false)}><Files size={20} />Documentos emitidos</NavLink>
           <NavLink to="/reports" className={linkClass} onClick={() => setSidebarOpen(false)}><FileSpreadsheet size={20} />Reportes Excel</NavLink>
           <NavLink to="/customers" className={linkClass} onClick={() => setSidebarOpen(false)}><UsersRound size={20} />Clientes / Receptores</NavLink>
