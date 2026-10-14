@@ -3,6 +3,7 @@ const QRCode=require('qrcode');
 const {schemas,inferType}=require('./dte-schema.service');
 const titleFor=(key,schema)=>schema?.title||schema?.description||key.replace(/([a-z])([A-Z])/g,'$1 $2');
 const buildFiscalPdf=async(data,title='Documento Tributario Electrónico')=>{
+  if (String(data.identificacion?.tipoEvento) === '18') return require('./return-pdf.service').buildReturnPdf(data);
   const type=inferType(data),schema=schemas[type];
   const identification=data.identificacion||{};
   const code=identification.codigoGeneracion;
