@@ -148,8 +148,8 @@ const buildCompanyPayload = (company) => {
     addressComplement: company.addressComplement,
     additionalDocumentsEnabled: Boolean(company.additionalDocumentsEnabled),
     electronicEventsEnabled: Boolean(company.electronicEventsEnabled),
-    allowedEventTypes: company.allowedEventTypes || [],
-    allowedDocumentTypes: company.allowedDocumentTypes || DEFAULT_ALLOWED_DOCUMENT_TYPES,
+    allowedEventTypes: require('../dte/sales-policy').filterTypes(company.allowedEventTypes, ['18']),
+    allowedDocumentTypes: require('../dte/sales-policy').filterTypes(company.allowedDocumentTypes, require('../dte/sales-policy').SALES_DOCUMENT_TYPES) || DEFAULT_ALLOWED_DOCUMENT_TYPES,
     allowFutureInvoiceDates: Boolean(company.allowFutureInvoiceDates)
   };
 };

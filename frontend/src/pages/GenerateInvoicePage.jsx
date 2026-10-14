@@ -32,10 +32,12 @@ const updateGeneratedInvoiceRequest = async (id, invoiceData) => {
 };
 
 const documentTypes = [
+  { code: '06', name: 'Nota de Débito Electrónica', shortName: 'Nota de Débito' },
+  { code: '04', name: 'Nota de Remisión Electrónica', shortName: 'Nota de Remisión' },
   { code: '01', name: 'Factura de Consumidor Final', shortName: 'Consumidor Final' },
   { code: '03', name: 'Comprobante de Crédito Fiscal Electrónico', shortName: 'CCF' },
   { code: '11', name: 'Factura de Exportación Electrónica', shortName: 'Exportación' },
-  { code: '14', name: 'Factura de Sujeto Excluido Electrónica', shortName: 'Sujeto Excluido' },
+
   { code: '05', name: 'Nota de Crédito Electrónica', shortName: 'Nota de Crédito' }
 ];
 
@@ -293,7 +295,7 @@ function GenerateInvoicePage() {
       setCreditNoteDocuments(data.invoices || []);
     } catch (error) {
       console.error('Error cargando CCF disponibles para nota de crédito:', error);
-      toast.error('No se pudieron cargar los CCF disponibles para Nota de Crédito');
+      toast.error('No se pudieron cargar los CCF disponibles para Nota de ajuste');
     } finally {
       setLoadingCreditNoteDocuments(false);
     }
@@ -413,7 +415,7 @@ function GenerateInvoicePage() {
       setGeneratedInvoice(invoice);
       setItemForm(initialItemForm);
 
-      if (invoice.documentTypeCode === '05') {
+      if (['05', '06'].includes(invoice.documentTypeCode)) {
         await loadCreditNoteDocuments();
 
         if (invoice.relatedInvoiceId) {
@@ -484,7 +486,7 @@ function GenerateInvoicePage() {
 
   useEffect(() => {
   if (isEditMode) {
-    if (documentTypeCode === '05') {
+    if (['05', '06'].includes(documentTypeCode)) {
       loadCreditNoteDocuments();
     }
 
@@ -497,7 +499,7 @@ function GenerateInvoicePage() {
   setGeneratedInvoice(null);
   setItemForm(initialItemForm);
 
-  if (documentTypeCode === '05') {
+  if (['05', '06'].includes(documentTypeCode)) {
     loadCreditNoteDocuments();
     setRelatedInvoiceId('');
     setRelatedInvoiceDetail(null);
@@ -510,7 +512,7 @@ function GenerateInvoicePage() {
 }, [documentTypeCode, isEditMode]);
 
   useEffect(() => {
-    if (documentTypeCode !== '05') return;
+    if (!['05', '06'].includes(documentTypeCode)) return;
 
     if (selectedRelatedInvoice?.customerId) {
       setCustomerId(String(selectedRelatedInvoice.customerId));
@@ -518,7 +520,7 @@ function GenerateInvoicePage() {
   }, [documentTypeCode, selectedRelatedInvoice]);
 
   const availableCustomers = useMemo(() => {
-    if (documentTypeCode === '05') {
+    if (['05', '06'].includes(documentTypeCode)) {
       if (selectedRelatedInvoice?.customerId) {
         return customers.filter(
           (customer) => Number(customer.id) === Number(selectedRelatedInvoice.customerId)
@@ -540,7 +542,7 @@ function GenerateInvoicePage() {
       return 'Para CCF, el cliente debe tener NIT o DUI, NRC y actividad económica registrada.';
     }
 
-    if (documentTypeCode === '05') {
+    if (['05', '06'].includes(documentTypeCode)) {
       return 'El cliente se toma automáticamente del CCF relacionado.';
     }
 
@@ -558,7 +560,7 @@ function GenerateInvoicePage() {
   const customerWarning = useMemo(() => {
     if (!selectedCustomer) return '';
 
-    if ((documentTypeCode === '03' || documentTypeCode === '05') && !hasCcfData(selectedCustomer)) {
+    if ((['03', '04', '05', '06'].includes(documentTypeCode)) && !hasCcfData(selectedCustomer)) {
       return 'Este cliente no tiene completos los datos para CCF: NIT o DUI, NRC y actividad económica.';
     }
 
@@ -598,7 +600,7 @@ function GenerateInvoicePage() {
     } else {
       gravada = baseAmount;
 
-      if (documentTypeCode === '03' || documentTypeCode === '05') {
+      if (['03', '04', '05', '06'].includes(documentTypeCode)) {
         iva = Number((gravada * 0.13).toFixed(4));
       }
     }
@@ -713,7 +715,7 @@ function GenerateInvoicePage() {
 
   const handleApplyRetention = () => {
     if (!canUseIvaRetention) {
-      toast.error('La retención 1% solo está disponible para Factura, CCF y Nota de Crédito');
+      toast.error('La retención 1% solo está disponible para Factura, CCF y Nota de ajuste');
       return;
     }
 
@@ -823,7 +825,7 @@ function GenerateInvoicePage() {
   };
 
   const addItem = () => {
-    if (documentTypeCode === '05' && !relatedInvoiceId) {
+    if (['05', '06'].includes(documentTypeCode) && !relatedInvoiceId) {
       toast.error('Seleccione primero el CCF relacionado');
       return;
     }
@@ -867,7 +869,7 @@ function GenerateInvoicePage() {
       ? null
       : Number(selectedProduct.stock || 0);
 
-    if (selectedProduct.itemType === 'PRODUCTO') {
+    if (selectedProduct.itemType === 'PRODUCTO' && !['04','06'].includes(documentTypeCode)) {
       const originalEditQuantity = isEditMode
         ? Number(originalEditProductQuantitiesRef.current[selectedProduct.id] || 0)
         : 0;
@@ -935,15 +937,15 @@ function GenerateInvoicePage() {
       return 'La fecha de emisión no puede ser futura para este contribuyente';
     }
 
-    if (documentTypeCode === '05' && !relatedInvoiceId) {
-      return 'Seleccione el CCF relacionado para emitir la Nota de Crédito';
+    if (['05', '06'].includes(documentTypeCode) && !relatedInvoiceId) {
+      return 'Seleccione el CCF relacionado para emitir la Nota de ajuste';
     }
 
     if (!customerId) {
       return 'Seleccione el cliente receptor';
     }
 
-    if ((documentTypeCode === '03' || documentTypeCode === '05') && !hasCcfData(selectedCustomer)) {
+    if ((['03', '04', '05', '06'].includes(documentTypeCode)) && !hasCcfData(selectedCustomer)) {
       return 'El cliente no tiene completos los datos para CCF: NIT o DUI, NRC y actividad económica';
     }
 
@@ -1187,7 +1189,7 @@ function GenerateInvoicePage() {
                 getOptionValue={(customer) => customer.id}
                 getOptionLabel={getCustomerLabel}
                 getOptionDescription={getCustomerDescription}
-                disabled={documentTypeCode === '05' && !selectedRelatedInvoice && !isEditMode}
+                disabled={['05', '06'].includes(documentTypeCode) && !selectedRelatedInvoice && !isEditMode}
               />
             </div>
 
@@ -1198,7 +1200,7 @@ function GenerateInvoicePage() {
               </div>
             )}
 
-            {documentTypeCode === '05' && (
+            {['05', '06'].includes(documentTypeCode) && (
               <div className="mt-4">
                 <SearchableSelect
                   label="CCF relacionado"

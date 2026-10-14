@@ -2,6 +2,7 @@ const router=require('express').Router();
 const {authenticate,authorize}=require('../../middlewares/auth.middleware');
 const service=require('./dte-draft.service');
 router.use(authenticate,authorize('INVOICES_CREATE'));
+router.use((req,res,next)=>{ const code=req.path.split('/')[1]; try { if(code) require('./sales-policy').assertSalesType(code); next(); } catch(error){next(error);} });
 router.get('/',async(req,res,next)=>{try{res.json(await service.listTemplates(req.user));}catch(e){next(e);}});
 router.get('/:code',async(req,res,next)=>{try{res.json(await service.getTemplate(req.user,req.params.code));}catch(e){next(e);}});
 router.post('/:code',async(req,res,next)=>{try{res.status(201).json({ok:true,invoice:await service.saveDraft({user:req.user,code:req.params.code,data:req.body.document})});}catch(e){next(e);}});

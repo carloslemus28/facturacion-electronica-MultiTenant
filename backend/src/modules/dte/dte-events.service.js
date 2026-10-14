@@ -25,7 +25,7 @@ const EVENT_TYPE_NAMES = {
   [EVENT_TYPE_CODES.CONTINGENCIA]: 'Evento de Contingencia'
 };
 
-const RETURN_ALLOWED_DOCUMENT_TYPES = ['01', '11', '14'];
+const RETURN_ALLOWED_DOCUMENT_TYPES = ['01', '11'];
 const CONTINGENCY_ALLOWED_DOCUMENT_TYPES = ['01', '03', '04', '05', '06', '07', '08', '09', '11', '14', '15'];
 const IVA_RATE = 0.13;
 const IVA_FACTOR = 1.13;
@@ -521,9 +521,9 @@ const buildReturnEventItemPayload = ({ sourceInvoice, sourceItem, input, index }
   }
 
   const sourceQuantity = safeNumber(sourceItem.quantity);
-  const requestedQuantity = safeNumber(input.quantity || sourceQuantity);
+  const requestedQuantity = Number(input.quantity ?? sourceQuantity);
 
-  if (requestedQuantity <= 0) {
+  if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) {
     const error = new Error('La cantidad de retorno debe ser mayor a cero');
     error.statusCode = 400;
     throw error;
@@ -561,13 +561,13 @@ const buildReturnEventItemPayload = ({ sourceInvoice, sourceItem, input, index }
   return {
     sourceInvoiceItemId: sourceItem.id,
     numItem: index + 1,
-    itemType: input.itemType || sourceItem.itemType || 'SERVICIO',
+    itemType: sourceItem.itemType || 'SERVICIO',
     codigoGeneracion: sourceInvoice.generationCode,
-    code: input.code || sourceItem.code || null,
-    unitOfMeasure: input.unitOfMeasure || sourceItem.unitOfMeasure || '59',
-    description: input.description || sourceItem.description,
+    code: sourceItem.code || null,
+    unitOfMeasure: sourceItem.unitOfMeasure || '59',
+    description: sourceItem.description,
     quantity: round8(requestedQuantity),
-    unitPrice: round8(input.unitPrice ?? sourceItem.unitPrice),
+    unitPrice: round8(sourceItem.unitPrice),
     montoDescu: round8(input.montoDescu || 0),
     codTributo: input.codTributo || null,
     ventaNoSuj,
@@ -807,8 +807,33 @@ const getEventById = async ({ id, user }) => {
   });
 };
 
+const getRemainingReturnItems = async (sourceInvoice, transaction = null, excludeEventId = null) => {
+  const events = await DteEvent.findAll({ where: { companyId: sourceInvoice.companyId, sourceInvoiceId: sourceInvoice.id, eventTypeCode: EVENT_TYPE_CODES.RETORNO, status: ['GENERADO','FIRMADO','ACEPTADO','RECHAZADO'] }, transaction });
+  const ids = events.filter(event => Number(event.id)!==Number(excludeEventId)).map(event => event.id);
+  const items = ids.length ? await DteEventItem.findAll({where:{eventId:ids},transaction}) : [];
+  return require('./return-quantities').remainingItems(sourceInvoice.items || [], items);
+};
+const listReturnSources = async ({ user, search = '' }) => {
+  const current = await resolveUserContext(user);
+  require('./dte-schema.service').assertEnabled(current.company,'18');
+  const { Op } = require('sequelize');
+  const term = String(search).trim().slice(0,120);
+  const where = { companyId:current.company.id, status:'ACEPTADO', documentTypeCode:['01','11'], receptionSeal:{[Op.ne]:null} };
+  if (!isAdminUser(current)) where.pointOfSaleId=current.pointOfSale.id;
+  if(term) where[Op.or]=[{controlNumber:{[Op.like]:`%${term}%`}},{generationCode:{[Op.like]:`%${term}%`}}];
+  return Invoice.findAll({where,attributes:['id','controlNumber','generationCode','issuedAt','total','documentTypeCode'],include:[{model:Customer,as:'customer',attributes:['name']}],order:[['id','DESC']],limit:100});
+};
+const getReturnOptions = async ({ id, user }) => {
+  const current = await resolveUserContext(user);
+  require('./dte-schema.service').assertEnabled(current.company,'18');
+  const source = await loadSourceInvoice({id,companyId:current.company.id});
+  validateSourceInvoiceForReturn({invoice:source,user:current});
+  return { invoice:{id:source.id,controlNumber:source.controlNumber,customerName:source.customer?.name,total:source.total}, items:await getRemainingReturnItems(source) };
+};
+
 const createReturnEvent = async ({ data, user }) => {
   const currentUser = await resolveUserContext(user);
+  if(Number(currentUser.pointOfSale.companyId)!==Number(currentUser.company.id)){const e=new Error('Seleccione un punto de venta del contribuyente activo');e.statusCode=403;throw e;}
   require('./dte-schema.service').assertEnabled(currentUser.company, '18');
   const sourceInvoiceId = getSourceInvoiceIdFromData(data);
 
@@ -819,6 +844,9 @@ const createReturnEvent = async ({ data, user }) => {
   }
 
   return sequelize.transaction(async (transaction) => {
+    // Serialize returns for this invoice before reading any reserved quantities.
+    const lockedSource = await Invoice.findOne({where:{id:sourceInvoiceId,companyId:currentUser.company.id},transaction,lock:transaction.LOCK.UPDATE});
+    if(!lockedSource){const e=new Error('DTE relacionado no encontrado');e.statusCode=404;throw e;}
     const sourceInvoice = await loadSourceInvoice({
       id: sourceInvoiceId,
       companyId: currentUser.company.id,
@@ -830,26 +858,8 @@ const createReturnEvent = async ({ data, user }) => {
       user: currentUser
     });
 
-    const existingAcceptedOrGeneratedReturn = await DteEvent.findOne({
-      where: {
-        companyId: currentUser.company.id,
-        sourceInvoiceId: sourceInvoice.id,
-        eventTypeCode: EVENT_TYPE_CODES.RETORNO,
-        status: ['GENERADO', 'FIRMADO', 'ACEPTADO']
-      },
-      transaction
-    });
-
-    if (existingAcceptedOrGeneratedReturn) {
-      const error = new Error('Este DTE ya tiene un Evento de Retorno generado o aceptado');
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const inputItems = resolveReturnItemsInput({
-      data,
-      sourceInvoice
-    });
+    const available = await getRemainingReturnItems(sourceInvoice, transaction);
+    const inputItems = require('./return-quantities').validateSelection(data.items, available);
 
     const itemPayloads = inputItems.map((input, index) => {
       const sourceItem = getSourceItemByInput({
@@ -923,66 +933,8 @@ const createReturnEvent = async ({ data, user }) => {
   });
 };
 
-const createSpecialOperationsEvent = async ({ data, user }) => {
-  const currentUser = await resolveUserContext(user);
-  if (Number(currentUser.company.id) !== Number(currentUser.pointOfSale.companyId)) { const e=new Error('El punto de venta no pertenece al contribuyente seleccionado');e.statusCode=403;throw e; }
-  require('./dte-schema.service').assertEnabled(currentUser.company, '17');
-
-  if (!Array.isArray(data.items) || data.items.length === 0) {
-    const error = new Error('Debe agregar al menos un ítem al Evento de Operaciones Especiales');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  return sequelize.transaction(async (transaction) => {
-    const itemPayloads = data.items.map((item, index) => normalizeSpecialOperationItem({
-      item,
-      index
-    }));
-
-    const totals = calculateSpecialOperationTotals({
-      items: itemPayloads
-    });
-
-    const event = await DteEvent.create({
-      companyId: currentUser.company.id,
-      pointOfSaleId: currentUser.pointOfSale.id,
-      userId: currentUser.id,
-      sourceInvoiceId: null,
-      eventTypeCode: EVENT_TYPE_CODES.OPERACIONES_ESPECIALES,
-      eventTypeName: EVENT_TYPE_NAMES[EVENT_TYPE_CODES.OPERACIONES_ESPECIALES],
-      generationCode: uuidv4().toUpperCase(),
-      status: 'GENERADO',
-      issuedAt: data.issuedAt ? new Date(data.issuedAt) : new Date(),
-      tipoModelo: 1,
-      tipoOperacion: 1,
-      ...totals,
-      notes: data.notes || null
-    }, { transaction });
-
-    for (const itemPayload of itemPayloads) {
-      await DteEventItem.create({
-        eventId: event.id,
-        ...itemPayload
-      }, { transaction });
-    }
-
-    const context = await getEventContext({
-      id: event.id,
-      transaction
-    });
-
-    const officialEventJson = dteEventJsonService.buildOfficialEventJson(context);
-
-    await event.update({
-      officialEventJson
-    }, { transaction });
-
-    return getEventContext({
-      id: event.id,
-      transaction
-    });
-  });
+const createSpecialOperationsEvent = async () => {
+  const error = new Error('Operaciones Especiales requiere registros no disponibles en el módulo de ventas'); error.statusCode=403; throw error;
 };
 
 const createContingencyEvent = async ({ data, user }) => {
@@ -1185,6 +1137,13 @@ const transmitEventToHacienda = async ({ id, user }) => {
   });
 
 let { event, company } = context;
+if (String(event.eventTypeCode)==='18') {
+  validateSourceInvoiceForReturn({invoice:context.sourceInvoice,user:currentUser});
+  const remaining = await getRemainingReturnItems(context.sourceInvoice, null, event.id);
+  require('./return-quantities').validateSelection(context.items, remaining);
+}
+
+if (String(event.eventTypeCode)==='17') { const e=new Error('Operaciones Especiales no está disponible en el módulo de ventas');e.statusCode=403;throw e; }
 require('./dte-schema.service').assertEnabled(company, event.eventTypeCode);;
 
   if (!['GENERADO', 'FIRMADO', 'RECHAZADO'].includes(event.status)) {
@@ -1401,6 +1360,8 @@ module.exports = {
   getEventById,
   getEventJsonById,
   createReturnEvent,
+  listReturnSources,
+  getReturnOptions,
   createSpecialOperationsEvent,
   createContingencyEvent,
   transmitEventToHacienda

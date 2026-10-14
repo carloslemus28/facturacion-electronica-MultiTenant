@@ -57,6 +57,7 @@ const Invoice = sequelize.define('Invoice', {
     field: 'generation_code'
   },
 
+  skipStockMovement: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'skip_stock_movement' },
   officialDraftJson: { type: DataTypes.JSON, allowNull: true, field: 'official_draft_json' },
   signedJws: {
     type: DataTypes.TEXT('long'),

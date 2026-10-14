@@ -9,7 +9,7 @@ const LOGO_MAX_SIZE_MB = Number(process.env.LOGO_MAX_SIZE_MB || 2);
 const LOGO_MAX_SIZE_BYTES = LOGO_MAX_SIZE_MB * 1024 * 1024;
 
 const DEFAULT_ALLOWED_DOCUMENT_TYPES = ['01', '03'];
-const VALID_DOCUMENT_TYPES = ["01", "03", "04", "05", "06", "07", "08", "09", "11", "14", "15"];
+const VALID_DOCUMENT_TYPES = require('../dte/sales-policy').SALES_DOCUMENT_TYPES;
 const VALID_ENVIRONMENTS = ['TEST', 'PRODUCTION'];
 
 const cleanDigits = (value) => String(value || '').replace(/\D/g, '');
@@ -244,7 +244,7 @@ const buildCompanyData = (data, currentCompany = null) => {
     electronicEventsEnabled: normalizeBoolean(data.electronicEventsEnabled, currentCompany?.electronicEventsEnabled ?? false),
     allowedEventTypes: data.allowedEventTypes === undefined
       ? (currentCompany?.allowedEventTypes || [])
-      : [...new Set((Array.isArray(data.allowedEventTypes) ? data.allowedEventTypes : []).map(String).filter(code => ['17', '18'].includes(code)))],
+      : [...new Set((Array.isArray(data.allowedEventTypes) ? data.allowedEventTypes : []).map(String).filter(code => ['18'].includes(code)))],
     allowedDocumentTypes: data.allowedDocumentTypes !== undefined
       ? normalizeAllowedDocumentTypes(data.allowedDocumentTypes)
       : normalizeAllowedDocumentTypes(currentCompany?.allowedDocumentTypes || DEFAULT_ALLOWED_DOCUMENT_TYPES),

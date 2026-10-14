@@ -335,7 +335,7 @@ const calculateItemTotals = ({
       // Hacienda espera que ivaItem represente el IVA incluido dentro de ventaGravada.
       iva = calculateIncludedIva(gravada);
     } else if (isIvaSeparatedDocument(documentTypeCode)) {
-      // CCF, Nota de Crédito y documentos similares: el precio unitario es base sin IVA.
+      // CCF, Nota de ajuste y documentos similares: el precio unitario es base sin IVA.
       iva = calculateSeparatedIva(gravada);
     }
   }
@@ -398,7 +398,7 @@ const applyAutomaticRetentionToInvoiceItems = ({
   }
 
   if (!supportsAutomaticIvaRetention(documentTypeCode)) {
-    const error = new Error('La retención 1% solo está disponible para Factura, CCF y Nota de Crédito');
+    const error = new Error('La retención 1% solo está disponible para Factura, CCF y Nota de ajuste');
     error.statusCode = 400;
     throw error;
   }
@@ -555,6 +555,7 @@ const validateAllowedDocumentType = async ({ companyId, documentTypeCode }) => {
     throw error;
   }
 
+  require('../dte/sales-policy').assertSalesType(documentTypeCode);
   const allowedDocumentTypes = parseAllowedDocumentTypes(company.allowedDocumentTypes);
 
   if (!allowedDocumentTypes.includes(String(documentTypeCode))) {
@@ -621,21 +622,21 @@ const validateCustomerForDocumentType = ({ documentTypeCode, customer }) => {
     }
   }
 
-  if (documentTypeCode === '05') {
+  if (['05', '06'].includes(documentTypeCode)) {
     if (!['NIT', 'DUI'].includes(customer.documentType) || !customer.documentNumber) {
-      const error = new Error('Para generar Nota de Crédito, el cliente relacionado debe tener NIT o DUI registrado');
+      const error = new Error('Para generar Nota de ajuste, el cliente relacionado debe tener NIT o DUI registrado');
       error.statusCode = 400;
       throw error;
     }
 
     if (!customer.nrc) {
-      const error = new Error('Para generar Nota de Crédito, el cliente relacionado debe tener NRC registrado');
+      const error = new Error('Para generar Nota de ajuste, el cliente relacionado debe tener NRC registrado');
       error.statusCode = 400;
       throw error;
     }
 
     if (!customer.economicActivityCode || !customer.economicActivityName) {
-      const error = new Error('Para generar Nota de Crédito, el cliente relacionado debe tener actividad económica registrada');
+      const error = new Error('Para generar Nota de ajuste, el cliente relacionado debe tener actividad económica registrada');
       error.statusCode = 400;
       throw error;
     }
@@ -930,7 +931,7 @@ const validateInvoiceVisibility = async ({ invoice, user }) => {
 
 const validateRelatedInvoiceForCreditNote = async ({ relatedInvoiceId, user, transaction }) => {
   if (!relatedInvoiceId) {
-    const error = new Error('Debe seleccionar el CCF relacionado para generar una Nota de Crédito');
+    const error = new Error('Debe seleccionar el CCF relacionado para generar una Nota de ajuste');
     error.statusCode = 400;
     throw error;
   }
@@ -959,7 +960,7 @@ const validateRelatedInvoiceForCreditNote = async ({ relatedInvoiceId, user, tra
   });
 
   if (relatedInvoice.documentTypeCode !== '03') {
-    const error = new Error('La Nota de Crédito solo puede relacionarse con un Comprobante de Crédito Fiscal');
+    const error = new Error('La Nota de ajuste solo puede relacionarse con un Comprobante de Crédito Fiscal');
     error.statusCode = 400;
     throw error;
   }
@@ -976,9 +977,7 @@ const validateRelatedInvoiceForCreditNote = async ({ relatedInvoiceId, user, tra
 const createGeneratedInvoice = async ({ data, user }) => {
   const currentUser = await resolveUserContext(user);
 
-  if (require('../dte/dte-draft.service').SPECIAL_TYPES.includes(String(data.documentTypeCode))) {
-    const error = new Error('Use el formulario de Documentos adicionales para este tipo de DTE'); error.statusCode = 400; throw error;
-  }
+  require('../dte/sales-policy').assertSalesType(data.documentTypeCode);
   validateInvoiceData(data);
 
   if (!currentUser.company || !currentUser.pointOfSale) {
@@ -1001,7 +1000,7 @@ const createGeneratedInvoice = async ({ data, user }) => {
   return sequelize.transaction(async (transaction) => {
     let relatedInvoice = null;
 
-    if (data.documentTypeCode === '05') {
+    if (['05', '06'].includes(data.documentTypeCode)) {
       relatedInvoice = await validateRelatedInvoiceForCreditNote({
         relatedInvoiceId: data.relatedInvoiceId,
         user: currentUser,
@@ -1009,7 +1008,7 @@ const createGeneratedInvoice = async ({ data, user }) => {
       });
     }
 
-    const effectiveCustomerId = data.documentTypeCode === '05'
+    const effectiveCustomerId = ['05', '06'].includes(data.documentTypeCode)
       ? relatedInvoice.customerId
       : data.customerId;
 
@@ -1057,6 +1056,7 @@ const createGeneratedInvoice = async ({ data, user }) => {
       customerId: effectiveCustomerId || null,
       documentTypeCode: data.documentTypeCode,
       documentTypeName: DOCUMENT_TYPE_NAMES[data.documentTypeCode],
+      skipStockMovement: ['04','06'].includes(String(data.documentTypeCode)),
       controlNumber: controlResult.controlNumber,
       generationCode: uuidv4().toUpperCase(),
       relatedInvoiceId: relatedInvoice?.id || null,
@@ -1103,7 +1103,7 @@ const createGeneratedInvoice = async ({ data, user }) => {
           throw error;
         }
 
-        if (product.itemType === 'PRODUCTO') {
+        if (product.itemType === 'PRODUCTO' && !['04','06'].includes(String(data.documentTypeCode))) {
           const currentStock = Number(product.stock || 0);
           const requestedQuantity = Number(item.quantity);
 
@@ -1224,9 +1224,7 @@ const createGeneratedInvoice = async ({ data, user }) => {
 const updateGeneratedInvoice = async ({ id, data, user }) => {
   const currentUser = await resolveUserContext(user);
 
-  if (require('../dte/dte-draft.service').SPECIAL_TYPES.includes(String(data.documentTypeCode))) {
-    const error = new Error('Use el formulario de Documentos adicionales para este tipo de DTE'); error.statusCode = 400; throw error;
-  }
+  require('../dte/sales-policy').assertSalesType(data.documentTypeCode);
   validateInvoiceData(data);
 
   const existingInvoice = await Invoice.findOne({
@@ -1305,7 +1303,7 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
 
     let relatedInvoice = null;
 
-    if (data.documentTypeCode === '05') {
+    if (['05', '06'].includes(data.documentTypeCode)) {
       relatedInvoice = await validateRelatedInvoiceForCreditNote({
         relatedInvoiceId: data.relatedInvoiceId,
         user: currentUser,
@@ -1313,7 +1311,7 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
       });
     }
 
-    const effectiveCustomerId = data.documentTypeCode === '05'
+    const effectiveCustomerId = ['05', '06'].includes(data.documentTypeCode)
       ? relatedInvoice.customerId
       : data.customerId;
 
@@ -1361,7 +1359,7 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
 
       if (!product) continue;
 
-      if (product.itemType === 'PRODUCTO' || previousItem.itemType === 'PRODUCTO') {
+      if ((product.itemType === 'PRODUCTO' || previousItem.itemType === 'PRODUCTO') && !invoice.skipStockMovement) {
         const currentStock = Number(product.stock || 0);
         const previousQuantity = Number(previousItem.quantity || 0);
 
@@ -1410,7 +1408,7 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
           throw error;
         }
 
-        if (product.itemType === 'PRODUCTO') {
+        if (product.itemType === 'PRODUCTO' && !['04','06'].includes(String(data.documentTypeCode))) {
           const currentStock = Number(product.stock || 0);
           const requestedQuantity = Number(item.quantity);
 
@@ -1484,6 +1482,7 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
 
     await invoice.update({
       customerId: effectiveCustomerId || null,
+      skipStockMovement: ['04','06'].includes(String(data.documentTypeCode)),
       issuedAt: resolveIssuedAtForUpdate({ data, invoice }),
 
       relatedInvoiceId: relatedInvoice?.id || null,
@@ -2216,6 +2215,7 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
   try {
     // Esta validación se ejecuta antes de firmar o transmitir. Si falla, el
     // catch guarda el error y conserva el DTE en GENERADO.
+    require('../dte/sales-policy').assertSalesType(invoice.documentTypeCode);
     require('../dte/dte-schema.service').assertEnabled(invoice.company, invoice.documentTypeCode);
     const officialDteJson = dteJsonService.buildOfficialStandardDteJson(invoice);
 

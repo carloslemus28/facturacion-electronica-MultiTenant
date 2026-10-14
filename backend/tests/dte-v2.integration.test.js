@@ -60,7 +60,7 @@ test('Migración deshabilita novedades una sola vez y conserva elecciones poster
       row.allowed_document_types=JSON.parse(options.replacements.documents);row.allowed_event_types=JSON.parse(options.replacements.events);updates++;
     }};
   const migrate=load(path.join(s.dte,'dte-v2-migration.js'),{'sequelize':{DataTypes:{JSON:'JSON',BOOLEAN:'BOOLEAN'}},'../../config/database':{sequelize}});
-  await migrate();assert.equal(updates,1);assert.equal(alterations,5);
+  await migrate();assert.equal(updates,1);assert.equal(alterations,6);
   for(const code of ['07','08','09','15'])assert.ok(!row.allowed_document_types.includes(code));
   assert.deepEqual(row.allowed_event_types,[]);
   for (const name of ['additional_documents_enabled','electronic_events_enabled']) {
@@ -69,7 +69,7 @@ test('Migración deshabilita novedades una sola vez y conserva elecciones poster
     assert.equal(columns.companies[name].type,'BOOLEAN');
   }
   row.allowed_document_types.push('07');row.allowed_event_types.push('18');
-  await migrate();assert.equal(updates,1);assert.equal(alterations,5);
+  await migrate();assert.equal(updates,1);assert.equal(alterations,6);
   assert.ok(row.allowed_document_types.includes('07'));assert.ok(row.allowed_event_types.includes('18'));
 });
 
@@ -108,3 +108,5 @@ test('Navegación fiscal: oculta por defecto, independiente por contribuyente y 
   assert.equal(canAccessFiscalModule(user,'events'),true);
   assert.equal(canAccessFiscalModule(null,'additional'),false);
 });
+
+require('./sales-returns.test');

@@ -6,6 +6,7 @@ module.exports = async () => {
     ['companies', 'additional_documents_enabled', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }],
     ['companies', 'electronic_events_enabled', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }],
     ['companies', 'allowed_event_types', { type: DataTypes.JSON, allowNull: true }],
+    ['invoices', 'skip_stock_movement', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }],
     ['invoices', 'official_draft_json', { type: DataTypes.JSON, allowNull: true }],
     ['dte_events', 'invalidation_record_json', { type: DataTypes.JSON, allowNull: true }]
   ]) {

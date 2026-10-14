@@ -164,10 +164,6 @@ function InvoicesPage() {
     'Anulación solicitada por error en los datos del documento'
   );
 
-  const [returnModalOpen, setReturnModalOpen] = useState(false);
-  const [returnTargetInvoice, setReturnTargetInvoice] = useState(null);
-  const [returnReason, setReturnReason] = useState('Retorno de bienes o servicios según operación relacionada');
-  const [returnTransmitNow, setReturnTransmitNow] = useState(true);
   const navigate = useNavigate();
 
   const loadInvoices = async (range = appliedDateRange) => {
@@ -284,9 +280,9 @@ function InvoicesPage() {
  const canCreateReturnEvent = (invoice) => {
   return RETURN_EVENT_FEATURE_ENABLED
     && invoice.status === 'ACEPTADO'
-    && ['01', '11', '14'].includes(String(invoice.documentTypeCode))
+    && ['01', '11'].includes(String(invoice.documentTypeCode))
     && Boolean(invoice.receptionSeal)
-    && !invoice.returnEvent;
+;
 };
 
   const getInvoiceSequence = (invoice) => {
@@ -731,76 +727,9 @@ const invoiceId = invalidateTargetInvoice.id;
 
 
   const handleReturnEvent = (invoice) => {
-  if (!canCreateReturnEvent(invoice)) {
-    toast.error('El Evento de Retorno solo aplica a FE, FEXE o FSEE aceptados y con sello de recepción');
-    return;
-  }
-
-  setReturnTargetInvoice(invoice);
-  setReturnReason('Retorno de bienes o servicios según operación relacionada');
-  setReturnTransmitNow(true);
-  setReturnModalOpen(true);
-};
-
-const closeReturnModal = () => {
-  if (processingId) return;
-
-  setReturnModalOpen(false);
-  setReturnTargetInvoice(null);
-  setReturnReason('Retorno de bienes o servicios según operación relacionada');
-  setReturnTransmitNow(true);
-};
-
-const submitReturnEvent = async () => {
-  if (!returnTargetInvoice) return;
-
-  const reason = returnReason.trim();
-
-  if (!reason) {
-    toast.error('Debe ingresar el motivo del Evento de Retorno');
-    return;
-  }
-
-  try {
-    setProcessingId(returnTargetInvoice.id);
-
-    const created = await createReturnEventRequest({
-      sourceInvoiceId: returnTargetInvoice.id,
-      notes: reason,
-      reason
-    });
-
-    let finalMessage = created.message || 'Evento de Retorno generado correctamente';
-    let createdEvent = created.event;
-
-    if (returnTransmitNow && createdEvent?.id) {
-      const transmitted = await transmitDteEventRequest(createdEvent.id);
-      createdEvent = transmitted.event || createdEvent;
-      finalMessage = transmitted.message || 'Evento de Retorno transmitido correctamente a Hacienda';
-    }
-
-    toast.success(finalMessage);
-
-    if (createdEvent?.status === 'ACEPTADO' && createdEvent?.receptionSeal) {
-      toast.success('Hacienda aceptó el Evento de Retorno y devolvió sello de recepción');
-    }
-
-    setReturnModalOpen(false);
-    setReturnTargetInvoice(null);
-    setReturnReason('Retorno de bienes o servicios según operación relacionada');
-    setReturnTransmitNow(true);
-
-    await loadInvoices();
-    await refreshSelectedInvoice(returnTargetInvoice.id);
-  } catch (error) {
-    console.error('Error generando Evento de Retorno:', error);
-
-    const message = error.response?.data?.message || 'No se pudo generar o transmitir el Evento de Retorno';
-    toast.error(message);
-  } finally {
-    setProcessingId(null);
-  }
-};
+    if (!canCreateReturnEvent(invoice)) return;
+    navigate(`/events?invoice=${invoice.id}`);
+  };
 
   const getDefaultEmailSubject = (invoice) => {
   if (invoice.status === 'ANULADO') {
@@ -1402,123 +1331,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
     </div>
   </div>
 )}
-{RETURN_EVENT_FEATURE_ENABLED && returnModalOpen && returnTargetInvoice && (
-  <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
-    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
-      <div className="flex items-start justify-between gap-4 border-b p-5">
-        <div>
-          <h3 className="font-bold text-lg text-gray-900">
-            Generar Evento de Retorno
-          </h3>
-          <p className="text-sm text-gray-500 mt-1">
-            El evento se generará tomando como base los ítems del DTE aceptado relacionado.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={closeReturnModal}
-          disabled={processingId}
-          className="w-10 h-10 rounded-xl border flex items-center justify-center text-gray-600 hover:bg-gray-50 disabled:opacity-70"
-        >
-          <X size={20} />
-        </button>
-      </div>
-
-      <div className="p-5 space-y-4">
-        <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 text-sm text-orange-900 flex gap-3">
-          <AlertTriangle className="shrink-0" size={22} />
-          <div>
-            <p className="font-semibold">
-              Revise que el retorno corresponda al documento relacionado.
-            </p>
-            <p className="mt-1">
-              Por defecto se retornan todos los ítems del DTE. En el backend también puede enviarse un arreglo items para retornos parciales.
-            </p>
-          </div>
-        </div>
-
-        <div className="bg-gray-50 border rounded-2xl p-4 text-sm space-y-2">
-          <p>
-            <strong>Número de control:</strong>{' '}
-            <span className="break-all">{returnTargetInvoice.controlNumber}</span>
-          </p>
-
-          <p>
-            <strong>Código de generación:</strong>{' '}
-            <span className="break-all">{returnTargetInvoice.generationCode}</span>
-          </p>
-
-          <p>
-            <strong>Tipo de documento:</strong>{' '}
-            {getDocumentShortName(returnTargetInvoice.documentTypeCode, returnTargetInvoice.documentTypeName)}
-          </p>
-
-          <p>
-            <strong>Cliente:</strong>{' '}
-            {returnTargetInvoice.customer?.name || 'Sin cliente'}
-          </p>
-
-          <p>
-            <strong>Total base:</strong>{' '}
-            {formatMoney(returnTargetInvoice.total)}
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm text-gray-700 mb-1">
-            Motivo del retorno <span className="text-red-600">*</span>
-          </label>
-
-          <textarea
-            value={returnReason}
-            onChange={(event) => setReturnReason(event.target.value)}
-            rows={4}
-            className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 resize-none"
-            placeholder="Escriba el motivo del Evento de Retorno"
-            disabled={processingId}
-          />
-        </div>
-
-        <label className="flex items-start gap-3 bg-gray-50 border rounded-xl p-3 text-sm text-gray-700 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={returnTransmitNow}
-            onChange={(event) => setReturnTransmitNow(event.target.checked)}
-            disabled={processingId}
-            className="mt-1"
-          />
-          <span>
-            <strong>Transmitir inmediatamente a Hacienda.</strong>{' '}
-            Si desmarca esta opción, el evento quedará en estado GENERADO para transmitirlo después desde backend.
-          </span>
-        </label>
-      </div>
-
-      <div className="border-t p-5 flex flex-col sm:flex-row sm:justify-end gap-3">
-        <button
-          type="button"
-          onClick={closeReturnModal}
-          disabled={processingId}
-          className="inline-flex items-center justify-center gap-2 border rounded-xl px-5 py-3 text-gray-700 hover:bg-gray-50 disabled:opacity-70"
-        >
-          Cancelar
-        </button>
-
-        <button
-          type="button"
-          onClick={submitReturnEvent}
-          disabled={processingId}
-          className="inline-flex items-center justify-center gap-2 bg-orange-700 text-white rounded-xl px-5 py-3 font-semibold hover:bg-orange-800 disabled:opacity-70"
-        >
-          {processingId ? <Loader2 className="animate-spin" size={20} /> : <RefreshCcw size={20} />}
-          {returnTransmitNow ? 'Generar y transmitir' : 'Generar evento'}
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-            {jsonModalOpen && (
+{jsonModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
             <div className="flex items-start justify-between gap-4 border-b p-5">

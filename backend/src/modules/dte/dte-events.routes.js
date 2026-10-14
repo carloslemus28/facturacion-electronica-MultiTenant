@@ -4,6 +4,12 @@ const dteEventsController = require('./dte-events.controller');
 const { authenticate, authorize } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
+router.get('/return-sources',authenticate,authorize('INVOICES_CREATE'),async(req,res,next)=>{
+  try {res.json({invoices:await require('./dte-events.service').listReturnSources({user:req.user,search:req.query.search})});}catch(e){next(e);}
+});
+router.get('/return-options/:id',authenticate,authorize('INVOICES_CREATE'),async(req,res,next)=>{
+  try {res.json(await require('./dte-events.service').getReturnOptions({id:req.params.id,user:req.user}));}catch(e){next(e);}
+});
 
 router.get('/formats/17',authenticate,authorize('INVOICES_CREATE'),async(req,res,next)=>{
   try { const current=await require('../invoices/invoices.service').resolveUserContext(req.user);const {schemas,assertEnabled}=require('./dte-schema.service');assertEnabled(current.company,'17');res.json({schema:schemas['17'].properties.cuerpoDocumento}); }catch(e){next(e);}
