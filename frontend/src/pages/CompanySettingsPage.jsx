@@ -1134,7 +1134,7 @@ function CompanySettingsPage() {
               <div className="mb-5 rounded-xl border bg-slate-50 p-4 space-y-3">
                 <h4 className="font-semibold">Opciones visibles para los usuarios</h4>
                 <p className="text-sm text-slate-600">Estas opciones comienzan ocultas. Todos los documentos de ventas se generan desde Generar DTE. Active esta pantalla para gestionar retornos y seleccione abajo los tipos autorizados. Los usuarios deben recargar la aplicación para ver los cambios.</p>
-                {[['electronicEventsEnabled', 'Mostrar Eventos electrónicos']].map(([key, label]) => (
+                {[['additionalDocumentsEnabled', 'Habilitar formularios de retención, liquidación y donación'], ['electronicEventsEnabled', 'Mostrar Eventos electrónicos']].map(([key, label]) => (
                   <label key={key} className="flex items-center gap-3">
                     <input type="checkbox" disabled={!user?.isProgrammerAdmin} checked={Boolean(form[key])} onChange={event => setForm(prev => ({ ...prev, [key]: event.target.checked }))} />
                     <span>{label}</span>
@@ -1142,7 +1142,7 @@ function CompanySettingsPage() {
                 ))}
               </div>
               <div className="grid md:grid-cols-2 gap-3">
-                {documentTypeOptions.filter(doc => ['01','03','04','05','06','11'].includes(doc.code)).map((doc) => (
+                {documentTypeOptions.map((doc) => (
                   <label
                     key={doc.code}
                     className="flex items-center gap-3 border rounded-xl px-4 py-3 cursor-pointer hover:bg-gray-50"
@@ -1158,8 +1158,8 @@ function CompanySettingsPage() {
                     </span>
                   </label>
                 ))}
-                  <p className="col-span-full text-sm text-slate-600">Habilite únicamente los tipos autorizados por Hacienda para este contribuyente. Este sistema gestiona ventas: compras, retenciones, liquidaciones, donaciones y operaciones especiales no están disponibles.</p>
-                  {[{code:'18',name:'Evento de Retorno'}].map(event => (
+                  <p className="col-span-full text-sm text-slate-600">Habilite únicamente los tipos autorizados por Hacienda para este contribuyente. Los nuevos tipos comienzan deshabilitados y deben habilitarse según la autorización del contribuyente.</p>
+                  {[{code:'17',name:'Evento de Operaciones Especiales'},{code:'18',name:'Evento de Retorno'}].map(event => (
                     <label key={event.code} className="flex items-center gap-2 rounded-lg border p-3">
                       <input type="checkbox" disabled={!user?.isProgrammerAdmin} checked={(form.allowedEventTypes || []).includes(event.code)}
                         onChange={() => setForm(prev => ({...prev, allowedEventTypes: (prev.allowedEventTypes || []).includes(event.code) ? prev.allowedEventTypes.filter(code => code !== event.code) : [...(prev.allowedEventTypes || []), event.code]}))} />

@@ -28,7 +28,7 @@ for (const code of ['17','18','19']) {
 test('Invalidación v3: fecha original, sin atributos antiguos, motivo independiente del entorno', () => {
   const original = s.builder.buildOfficialStandardDteJson(s.standard('03'));
   const previous = process.env.MH_INVALIDACION_EVENT_VERSION;
-  process.env.MH_INVALIDACION_EVENT_VERSION = '9';
+  process.env.MH_INVALIDACION_EVENT_VERSION = '3';
   try {
     const data = s.builder.buildOfficialInvalidationJson({ ...s.standard('03'), signedJws: sign(original), status: 'ANULADO', receptionSeal: 'A'.repeat(40), invalidationGenerationCode: uuid, invalidatedAt: '2026-10-14T16:00:00Z', invalidationReason: 'Rescindir operacion de prueba' });
     s.schema.validateFiscalJson(data, 'invalidation');
@@ -120,4 +120,20 @@ test('PDF de documentos nuevos y eventos se genera desde el archivo correspondie
     const {buffer}=await buildFiscalPdf({...documents[code],selloRecibido:'A'.repeat(40)},code);
     assert.equal(buffer.subarray(0,4).toString(),'%PDF');
   }
+});
+
+test('Invalidacion predeterminada v2 conserva campos requeridos; configuracion invalida falla',()=>{
+ const previous=process.env.MH_INVALIDACION_EVENT_VERSION;
+ try {
+  delete process.env.MH_INVALIDACION_EVENT_VERSION;
+  const original=s.builder.buildOfficialStandardDteJson(s.standard('03'));
+  const input={...s.standard('03'),signedJws:sign(original),receptionSeal:'A'.repeat(40),invalidationGenerationCode:uuid,invalidatedAt:'2026-10-28T16:00:00Z',invalidationReason:'Rescindir operacion'};
+  const result=s.builder.buildOfficialInvalidationJson(input);
+  assert.equal(result.identificacion.version,2);
+  assert.ok(result.identificacion.fecAnula);
+  assert.ok('montoIva' in result.documento);
+  s.schema.validateFiscalJson(result,'invalidation');
+  process.env.MH_INVALIDACION_EVENT_VERSION='9';
+  assert.throws(()=>s.builder.buildOfficialInvalidationJson(input),/debe ser 2 o 3/);
+ } finally {if(previous===undefined)delete process.env.MH_INVALIDACION_EVENT_VERSION;else process.env.MH_INVALIDACION_EVENT_VERSION=previous;}
 });

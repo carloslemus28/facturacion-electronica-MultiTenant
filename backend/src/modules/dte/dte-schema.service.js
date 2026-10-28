@@ -8,10 +8,12 @@ require('./decimal-multiple').installDecimalMultiple(ajv);
 addFormats(ajv);
 const schemas = Object.fromEntries(Object.entries(schemaFiles).map(([code, file]) => [code, require(`./schemas/${file}.json`)]));
 const validators = Object.fromEntries(Object.entries(schemas).map(([code, schema]) => [code, ajv.compile(schema)]));
+const invalidationV2Validator = ajv.compile(require('./schemas/invalidacion-compat-v2.json'));
 const inferType = data => data?.motivo?.tipoAnulacion !== undefined ? 'invalidation'
   : data?.detalleDTE ? '19' : String(data?.identificacion?.tipoDte || data?.identificacion?.tipoEvento || '');
 const validateFiscalJson = (data, type = inferType(data)) => {
-  const validator = validators[type];
+  const validator = type === 'invalidation' && data?.identificacion?.version === 2
+    ? invalidationV2Validator : validators[type];
   if (!validator) { const e = new Error('Tipo de documento o evento no soportado'); e.statusCode = 400; throw e; }
   if (!validator(data)) {
     const issues = validator.errors.map(e => ({ campo: e.instancePath || '/', regla: e.keyword, detalle: e.message, parametros: e.params }));

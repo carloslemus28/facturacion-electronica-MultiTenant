@@ -1,3 +1,5 @@
+const { assertEnabled } = require('./dte-schema.service');
+const assertEventPointOfSale = user => { if(Number(user.pointOfSale.companyId)!==Number(user.company.id)){const e=new Error('Seleccione un punto de venta del contribuyente activo');e.statusCode=403;throw e;} };
 const { v4: uuidv4 } = require('uuid');
 const { sequelize } = require('../../config/database');
 
@@ -25,7 +27,7 @@ const EVENT_TYPE_NAMES = {
   [EVENT_TYPE_CODES.CONTINGENCIA]: 'Evento de Contingencia'
 };
 
-const RETURN_ALLOWED_DOCUMENT_TYPES = ['01', '11'];
+const RETURN_ALLOWED_DOCUMENT_TYPES = ['01', '11', '14'];
 const CONTINGENCY_ALLOWED_DOCUMENT_TYPES = ['01', '03', '04', '05', '06', '07', '08', '09', '11', '14', '15'];
 const IVA_RATE = 0.13;
 const IVA_FACTOR = 1.13;
@@ -711,8 +713,8 @@ const calculateSpecialOperationTotals = ({ items }) => {
     totalExenta: round4(totals.totalExenta),
     totalGravada: round4(totals.totalGravada),
     subTotal,
-    total: subTotal,
-    totalPagar: subTotal,
+    total: round4(subTotal + calculateSeparatedIva(totals.totalGravada)),
+    totalPagar: round4(subTotal + calculateSeparatedIva(totals.totalGravada)),
     totalIva: round4(calculateSeparatedIva(totals.totalGravada))
   };
 };
@@ -818,7 +820,7 @@ const listReturnSources = async ({ user, search = '' }) => {
   require('./dte-schema.service').assertEnabled(current.company,'18');
   const { Op } = require('sequelize');
   const term = String(search).trim().slice(0,120);
-  const where = { companyId:current.company.id, status:'ACEPTADO', documentTypeCode:['01','11'], receptionSeal:{[Op.ne]:null} };
+  const where = { companyId:current.company.id, status:'ACEPTADO', documentTypeCode:RETURN_ALLOWED_DOCUMENT_TYPES, receptionSeal:{[Op.ne]:null} };
   if (!isAdminUser(current)) where.pointOfSaleId=current.pointOfSale.id;
   if(term) where[Op.or]=[{controlNumber:{[Op.like]:`%${term}%`}},{generationCode:{[Op.like]:`%${term}%`}}];
   return Invoice.findAll({where,attributes:['id','controlNumber','generationCode','issuedAt','total','documentTypeCode'],include:[{model:Customer,as:'customer',attributes:['name']}],order:[['id','DESC']],limit:100});
@@ -933,8 +935,67 @@ const createReturnEvent = async ({ data, user }) => {
   });
 };
 
-const createSpecialOperationsEvent = async () => {
-  const error = new Error('Operaciones Especiales requiere registros no disponibles en el módulo de ventas'); error.statusCode=403; throw error;
+const createSpecialOperationsEvent = async ({ data, user }) => {
+  const currentUser = await resolveUserContext(user);
+  assertEnabled(currentUser.company, '17');
+  require('./special-operation-validation').validateSpecialItems(data.items);
+  assertEventPointOfSale(currentUser);
+
+  if (!Array.isArray(data.items) || data.items.length === 0) {
+    const error = new Error('Debe agregar al menos un ítem al Evento de Operaciones Especiales');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return sequelize.transaction(async (transaction) => {
+    const itemPayloads = data.items.map((item, index) => normalizeSpecialOperationItem({
+      item,
+      index
+    }));
+
+    const totals = calculateSpecialOperationTotals({
+      items: itemPayloads
+    });
+
+    const event = await DteEvent.create({
+      companyId: currentUser.company.id,
+      pointOfSaleId: currentUser.pointOfSale.id,
+      userId: currentUser.id,
+      sourceInvoiceId: null,
+      eventTypeCode: EVENT_TYPE_CODES.OPERACIONES_ESPECIALES,
+      eventTypeName: EVENT_TYPE_NAMES[EVENT_TYPE_CODES.OPERACIONES_ESPECIALES],
+      generationCode: uuidv4().toUpperCase(),
+      status: 'GENERADO',
+      issuedAt: data.issuedAt ? new Date(data.issuedAt) : new Date(),
+      tipoModelo: 1,
+      tipoOperacion: 1,
+      ...totals,
+      notes: data.notes || null
+    }, { transaction });
+
+    for (const itemPayload of itemPayloads) {
+      await DteEventItem.create({
+        eventId: event.id,
+        ...itemPayload
+      }, { transaction });
+    }
+
+    const context = await getEventContext({
+      id: event.id,
+      transaction
+    });
+
+    const officialEventJson = dteEventJsonService.buildOfficialEventJson(context);
+
+    await event.update({
+      officialEventJson
+    }, { transaction });
+
+    return getEventContext({
+      id: event.id,
+      transaction
+    });
+  });
 };
 
 const createContingencyEvent = async ({ data, user }) => {
@@ -1143,7 +1204,7 @@ if (String(event.eventTypeCode)==='18') {
   require('./return-quantities').validateSelection(context.items, remaining);
 }
 
-if (String(event.eventTypeCode)==='17') { const e=new Error('Operaciones Especiales no está disponible en el módulo de ventas');e.statusCode=403;throw e; }
+
 require('./dte-schema.service').assertEnabled(company, event.eventTypeCode);;
 
   if (!['GENERADO', 'FIRMADO', 'RECHAZADO'].includes(event.status)) {

@@ -1,3 +1,4 @@
+const { normalizeAllowedEventTypes } = require('./company-event-options');
 const { sequelize } = require('../../config/database');
 
 const Company = require('./company.model');
@@ -244,7 +245,7 @@ const buildCompanyData = (data, currentCompany = null) => {
     electronicEventsEnabled: normalizeBoolean(data.electronicEventsEnabled, currentCompany?.electronicEventsEnabled ?? false),
     allowedEventTypes: data.allowedEventTypes === undefined
       ? (currentCompany?.allowedEventTypes || [])
-      : [...new Set((Array.isArray(data.allowedEventTypes) ? data.allowedEventTypes : []).map(String).filter(code => ['18'].includes(code)))],
+      : normalizeAllowedEventTypes(data.allowedEventTypes),
     allowedDocumentTypes: data.allowedDocumentTypes !== undefined
       ? normalizeAllowedDocumentTypes(data.allowedDocumentTypes)
       : normalizeAllowedDocumentTypes(currentCompany?.allowedDocumentTypes || DEFAULT_ALLOWED_DOCUMENT_TYPES),

@@ -80,6 +80,8 @@ const getElSalvadorDateTimeParts = (value) => {
 };
 
 const formatDate = (value) => {
+  // DATEONLY values already represent the fiscal date; do not shift them to the prior day.
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const parts = getElSalvadorDateTimeParts(value);
 
   return parts
@@ -236,12 +238,18 @@ const buildContingencyIdentification = ({ event, company }) => {
 };
 
 const buildContingencyIssuer = ({ event, company, pointOfSale, establishment }) => {
+  const tipoDocResponsable = cleanString(event.responsibleDocumentType || '36');
+  const rawResponsibleDocument = event.responsibleDocumentNumber || company.nit;
+  const numeroDocResponsable = ['13', '36'].includes(tipoDocResponsable)
+    ? cleanDigits(rawResponsibleDocument)
+    : cleanString(rawResponsibleDocument);
+
   return {
     nit: cleanDigits(company.nit),
     nombre: cleanString(company.legalName),
     nombreResponsable: cleanString(event.responsibleName),
-    tipoDocResponsable: cleanString(event.responsibleDocumentType || '36'),
-    numeroDocResponsable: cleanString(event.responsibleDocumentNumber || company.nit),
+    tipoDocResponsable,
+    numeroDocResponsable,
     tipoEstablecimiento: getEstablishmentTypeCode(
       establishment?.establishmentType || company?.establishmentType
     ),
@@ -278,13 +286,16 @@ const buildContingencyReason = ({ event }) => {
 const buildReturnReceiver = ({ event, sourceInvoice, customer }) => {
   const snapshot = event.receiverSnapshotJson || {};
   const effectiveCustomer = customer || sourceInvoice?.customer || {};
+  // Return of a consumer-final invoice: Hacienda requires country fields to be null.
+  // Do not copy the customer's default country (or a stored snapshot) into this case.
+  const isConsumerFinal = String(event.sourceDocumentTypeCode || sourceInvoice?.documentTypeCode || '') === '01';
 
   return {
     tipoDocumento: cleanString(snapshot.tipoDocumento) || getDocumentTypeForReceiver(effectiveCustomer.documentType),
     numDocumento: cleanString(snapshot.numDocumento) || cleanString(effectiveCustomer.documentNumber),
     nombre: cleanString(snapshot.nombre) || cleanString(effectiveCustomer.name),
-    codPais: cleanString(snapshot.codPais) || cleanString(effectiveCustomer.countryCode || effectiveCustomer.codPais),
-    nombrePais: cleanString(snapshot.nombrePais) || cleanString(effectiveCustomer.countryName || effectiveCustomer.country || effectiveCustomer.nombrePais),
+    codPais: isConsumerFinal ? null : cleanString(snapshot.codPais) || cleanString(effectiveCustomer.countryCode || effectiveCustomer.codPais),
+    nombrePais: isConsumerFinal ? null : cleanString(snapshot.nombrePais) || cleanString(effectiveCustomer.countryName || effectiveCustomer.country || effectiveCustomer.nombrePais),
     telefono: cleanPhone(snapshot.telefono || effectiveCustomer.phone),
     correo: cleanString(snapshot.correo || effectiveCustomer.email)
   };
@@ -427,6 +438,25 @@ const buildReturnEventJson = ({ event, items, company, pointOfSale, establishmen
     customer
   };
 
+  const isConsumerFinal = String(event.sourceDocumentTypeCode || sourceInvoice?.documentTypeCode || '') === '01';
+  const body = buildReturnBody({ items });
+  const summary = buildReturnSummary({ event });
+  if (isConsumerFinal) {
+    // Normativa v2, p.131 field 81 and p.133 field 101:
+    // IVA 20 and C3 do not apply as tributes on a return of FE.
+    // IVA remains informational in ivaItem / totalIva (fields 83 / 108).
+    for (const line of body) {
+      const codes = (line.tributos || []).filter(code => !['20', 'C3'].includes(String(code)));
+      if (codes.length) {
+        const error = new Error('El retorno de FE contiene otros tributos que requieren consolidacion especifica. No se enviara un resumen calculado solo desde totalIva.');
+        error.statusCode = 422;
+        throw error;
+      }
+      line.tributos = null;
+    }
+    summary.tributos = null;
+  }
+
   return {
     identificacion: buildReturnIdentification({ event, company }),
     documentoRelacionado: buildReturnRelatedDocuments({ event }),
@@ -434,8 +464,8 @@ const buildReturnEventJson = ({ event, items, company, pointOfSale, establishmen
     documento: buildReturnReceiver(context),
     ventaTercero: null,
     compraTercero: null,
-    cuerpoDocumento: buildReturnBody({ items }),
-    resumen: buildReturnSummary({ event }),
+    cuerpoDocumento: body,
+    resumen: summary,
     apendice: buildAppendix({ event })
   };
 };
@@ -485,14 +515,14 @@ const buildOfficialEventJson = (context) => {
 
   if (eventTypeCode === EVENT_TYPE_CODES.CONTINGENCIA) {
     delete eventJson.apendice;
-    return eventJson;
+    return require('./dte-schema.service').validateFiscalJson(eventJson, '19');
   }
 
   if (!Object.prototype.hasOwnProperty.call(eventJson, 'apendice')) {
     eventJson.apendice = null;
   }
 
-  return eventJson;
+  return require('./dte-schema.service').validateFiscalJson(eventJson, eventTypeCode);
 };
 
 module.exports = {

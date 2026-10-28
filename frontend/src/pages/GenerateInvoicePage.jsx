@@ -32,6 +32,7 @@ const updateGeneratedInvoiceRequest = async (id, invoiceData) => {
 };
 
 const documentTypes = [
+  { code: '14', name: 'Factura de Sujeto Excluido', shortName: 'Sujeto Excluido' },
   { code: '06', name: 'Nota de Débito Electrónica', shortName: 'Nota de Débito' },
   { code: '04', name: 'Nota de Remisión Electrónica', shortName: 'Nota de Remisión' },
   { code: '01', name: 'Factura de Consumidor Final', shortName: 'Consumidor Final' },
@@ -458,7 +459,7 @@ function GenerateInvoicePage() {
 
     if (isEditMode && !editLoadedRef.current) return;
 
-    const allowed = parseAllowedDocumentTypes(userContext.company.allowedDocumentTypes);
+    const allowed = parseAllowedDocumentTypes(userContext.company.allowedDocumentTypes).filter(code => documentTypes.some(doc => doc.code === code));
 
     if (!allowed.includes(documentTypeCode)) {
       setDocumentTypeCode(allowed[0] || '01');
@@ -1156,6 +1157,7 @@ function GenerateInvoicePage() {
                     </option>
                   ))}
                 </select>
+                {!isEditMode && userContext?.company?.additionalDocumentsEnabled && allowedDocumentTypes.some(code => ['07','08','09','15'].includes(code)) && <button type="button" className="mt-3 text-blue-900 underline" onClick={() => navigate('/invoices/additional')}>Generar retención, liquidación o donación</button>}
               </div>
 
               <div>

@@ -216,26 +216,14 @@ const buildReceptionPayload = ({ invoice, officialDteJson, signedJws }) => {
   };
 };
 
-const buildEventPayload = ({ event, officialEventJson, signedJws }) => {
-  const identificacion = officialEventJson?.identificacion || {};
-  const typeFieldName = 'tipoDte';
-
-  const payload = {
-    ambiente: identificacion.ambiente,
-    idEnvio: Number(event.id),
-    version: Number(identificacion.version || 1),
-    documento: signedJws,
-    codigoGeneracion: identificacion.codigoGeneracion
-  };
-
-  payload[typeFieldName] = String(
-    identificacion.tipoEvento ||
-    event.eventTypeCode ||
-    ''
-  ).padStart(2, '0');
-
-  return payload;
-};
+const buildEventPayload = ({ event, officialEventJson, signedJws }) => ({
+  ambiente: officialEventJson.identificacion.ambiente,
+  idEnvio: Number(event.id),
+  version: Number(officialEventJson.identificacion.version),
+  documento: signedJws,
+  codigoGeneracion: officialEventJson.identificacion.codigoGeneracion,
+  tipoDte: String(event.eventTypeCode).padStart(2, '0')
+});
 
 const buildContingencyPayload = ({ officialEventJson, signedJws }) => {
   const nit = String(officialEventJson?.emisor?.nit || '').replace(/\D/g, '');
@@ -248,7 +236,7 @@ const buildInvalidationPayload = ({ invoice, officialInvalidationJson, signedJws
   return {
     ambiente: identificacion.ambiente,
     idEnvio: Number(invoice.id),
-    version: Number(identificacion.version || 2),
+    version: Number(identificacion.version),
     documento: signedJws
   };
 };
@@ -659,8 +647,6 @@ const transmitSignedEvent = async ({ event, company, officialEventJson, signedJw
     throw error;
   }
 
-
-
   const payload = buildEventPayload({
     event,
     officialEventJson,
@@ -739,11 +725,27 @@ const transmitSignedContingencyEvent = async ({ event, company, officialEventJso
     company
   });
 
-  return normalizeTransmissionResult({
+  const normalized = normalizeTransmissionResult({
     response,
     payload,
     defaultRejectedMessage: 'Hacienda rechazó el evento de contingencia'
   });
+
+  // Para Evento de Contingencia una respuesta HTTP exitosa no basta. El
+  // Manual Tecnológico indica que la aceptación satisfactoria devuelve
+  // selloRecibido. Sin sello no debe registrarse localmente como ACEPTADO ni
+  // contarse para las pruebas mínimas de autorización.
+  if (normalized.accepted && !normalized.receptionSeal) {
+    return {
+      ...normalized,
+      accepted: false,
+      rejected: true,
+      rejectionReason:
+        'Hacienda respondió el Evento de Contingencia sin Sello de Recepción; la transmisión no se considera satisfactoria.'
+    };
+  }
+
+  return normalized;
 };
 
 module.exports = {

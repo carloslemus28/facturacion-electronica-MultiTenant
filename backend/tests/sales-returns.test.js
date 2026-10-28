@@ -7,9 +7,9 @@ const { remainingItems, validateSelection } = require('../src/modules/dte/return
 const s = suite(path.resolve(__dirname, '..'));
 const plain = value => JSON.parse(JSON.stringify(value));
 
-test('Solo ventas: filtra compras, retenciones, liquidaciones y donaciones', () => {
-  assert.deepEqual(filterTypes(['01','03','04','05','06','07','08','09','11','14','15'], SALES_DOCUMENT_TYPES), ['01','03','04','05','06','11']);
-  for(const code of ['07','08','09','14','15']) assert.throws(()=>assertSalesType(code), e=>e.statusCode===403);
+test('Catalogo completo: permite los once tipos y rechaza tipos desconocidos', () => {
+  assert.deepEqual(filterTypes(['01','03','04','05','06','07','08','09','11','14','15'], SALES_DOCUMENT_TYPES), ['01','03','04','05','06','07','08','09','11','14','15']);
+  for(const code of ['00','99']) assert.throws(()=>assertSalesType(code), e=>e.statusCode===403);
   for(const code of SALES_DOCUMENT_TYPES) assert.doesNotThrow(()=>assertSalesType(code));
 });
 
@@ -28,8 +28,8 @@ test('Cantidades: permite fracciones y varios productos, rechaza vacíos, duplic
   for(const bad of [[],[{sourceInvoiceItemId:1,quantity:0}],[{sourceInvoiceItemId:1,quantity:-1}],[{sourceInvoiceItemId:1,quantity:4}],[{sourceInvoiceItemId:1,quantity:Infinity}],[{sourceInvoiceItemId:1,quantity:'abc'}],[{sourceInvoiceItemId:9,quantity:1}],[{sourceInvoiceItemId:1,quantity:1},{sourceInvoiceItemId:1,quantity:1}]]) assert.throws(()=>validateSelection(bad,rows));
 });
 
-function harness({sourceCompany=1,sourcePoint=1,sourceType='01'}={}) {
-  const tenant={...company,allowedEventTypes:['17','18']};
+function harness({sourceCompany=1,sourcePoint=1,sourceType='01',allowedEvents=['17','18']}={}) {
+  const tenant={...company,allowedEventTypes:allowedEvents};
   const pos={...s.current.pointOfSale,establishmentId:1,company:tenant};
   const source={...s.standard(sourceType),companyId:sourceCompany,pointOfSaleId:sourcePoint,status:'ACEPTADO',receptionSeal:'A'.repeat(40),acceptedAt:new Date(),items:[{...invoice.items[0],quantity:4,unitPrice:28.25}]};
   const events=[],eventItems=[];const trace=[];
@@ -85,8 +85,8 @@ test('Retornos simultáneos sobre el mismo saldo: solamente uno puede reservarlo
   assert.equal(results.filter(r=>r.status==='rejected').length,1);
 });
 
-test('Aislamiento: rechaza otra empresa, otro punto de venta y documentos de compras',async()=>{
-  for(const options of [{sourceCompany:2},{sourcePoint:2},{sourceType:'14'}]) {
+test('Aislamiento: rechaza otra empresa, otro punto de venta y tipos no admitidos para retorno',async()=>{
+  for(const options of [{sourceCompany:2},{sourcePoint:2},{sourceType:'03'}]) {
     const h=harness(options);
     await assert.rejects(h.service.getReturnOptions({id:1,user:h.user}));
     await assert.rejects(h.service.createReturnEvent({user:h.user,data:{sourceInvoiceId:1,items:[{sourceInvoiceItemId:1,quantity:1}]}}));
@@ -94,6 +94,18 @@ test('Aislamiento: rechaza otra empresa, otro punto de venta y documentos de com
   }
 });
 
-test('Operaciones especiales permanece deshabilitado aunque se invoque directamente',async()=>{
-  const h=harness();await assert.rejects(h.service.createSpecialOperationsEvent({user:h.user,data:{items:[]}}),e=>e.statusCode===403);
+test('Operaciones especiales respeta la deshabilitacion del contribuyente',async()=>{
+  const h=harness({allowedEvents:[]});await assert.rejects(h.service.createSpecialOperationsEvent({user:h.user,data:{items:[]}}),e=>e.statusCode===403);
+});
+
+test('Operaciones especiales habilitado: valida origen y suma IVA separado',async()=>{
+ const h=harness();
+ const result=await h.service.createSpecialOperationsEvent({user:h.user,data:{items:[{tipoDocumento:'97',numDocumento:'100',fechaEmision:'2026-10-28',cantidad:1,descripcion:'Venta documentada',precioUni:100,ventaGravada:100}]}});
+ assert.equal(result.event.total,113);
+ assert.equal(result.event.totalIva,13);
+ s.schema.validateFiscalJson(result.event.officialEventJson,'17');
+});
+test('Retorno permite consultar documento 14 del mismo contribuyente',async()=>{
+ const h=harness({sourceType:'14'});
+ assert.equal((await h.service.getReturnOptions({id:1,user:h.user})).items[0].availableQuantity,4);
 });

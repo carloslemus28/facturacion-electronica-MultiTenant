@@ -1,3 +1,4 @@
+import AdditionalDtePage from '../pages/AdditionalDtePage';
 import FiscalModuleRoute from './FiscalModuleRoute';
 import DteEventsPage from '../pages/DteEventsPage';
 import { Navigate, Route, Routes } from 'react-router-dom';
@@ -29,7 +30,7 @@ function AppRoutes() {
           <Route path="/customers" element={<CustomersPage />} />
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/invoices/generate" element={<GenerateInvoicePage />} />
-          <Route element={<PermissionRoute permission="INVOICES_CREATE" />}><Route path="/invoices/additional" element={<Navigate to="/invoices/generate" replace />} /></Route>
+          <Route element={<PermissionRoute permission="INVOICES_CREATE" />}><Route path="/invoices/additional" element={<FiscalModuleRoute module="additional"><AdditionalDtePage /></FiscalModuleRoute>} /></Route>
           <Route path="/invoices" element={<InvoicesPage />} />
           <Route element={<PermissionRoute permission="INVOICES_VIEW" />}><Route path="/events" element={<FiscalModuleRoute module="events"><DteEventsPage /></FiscalModuleRoute>} /></Route>
           <Route path="/reports" element={<ReportsPage />} />

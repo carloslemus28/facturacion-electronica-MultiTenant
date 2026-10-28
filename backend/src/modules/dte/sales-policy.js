@@ -1,5 +1,5 @@
-const SALES_DOCUMENT_TYPES = ['01', '03', '04', '05', '06', '11'];
-const SALES_EVENT_TYPES = ['18'];
+const SALES_DOCUMENT_TYPES = ['01', '03', '04', '05', '06', '07', '08', '09', '11', '14', '15'];
+const SALES_EVENT_TYPES = ['17', '18'];
 const filterTypes = (values, allowed) => {
   if (typeof values === 'string') { try { values = JSON.parse(values); } catch { values = []; } }
   return Array.isArray(values) ? values.map(String).filter(code => allowed.includes(code)) : [];

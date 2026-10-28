@@ -41,6 +41,8 @@ const IVA_RATE = 0.13;
 const IVA_FACTOR = 1.13;
 const IVA_TRIBUTE_CODE = '20';
 const IVA_TRIBUTE_DESCRIPTION = 'Impuesto al Valor Agregado 13%';
+const EXPORT_IVA_TRIBUTE_CODE = 'C3';
+const EXPORT_IVA_TRIBUTE_DESCRIPTION = 'Impuesto al Valor Agregado (exportaciones) 0%';
 
 const round2 = (value) => {
   return Number(Number(value || 0).toFixed(2));
@@ -321,7 +323,7 @@ const formatReceiverDocumentNumber = (documentType, documentNumber) => {
 };
 
 // Compatibilidad con el validador V2 seleccionado en la respuesta MH 096.
-const getInvalidationEventVersion = () => 3;
+const { getInvalidationEventVersion } = require('./invalidation-version');
 
 const getInvalidationTypeCode = () => 2; // Este formulario rescinde la operación; no es la versión del evento.
 
@@ -398,6 +400,23 @@ const getOfficialItemIva = (documentTypeCode, item) => {
   const gravada = Number(item.gravada || 0);
 
   if (gravada <= 0) return 0;
+
+  /*
+    En combustible, el monto ingresado por el usuario es el total final que
+    debe cobrarse. FOVIAL y COTRANS se redondean por separado y el IVA ya se
+    calcula como residuo sobre ese total. Volver a calcular el IVA a partir
+    de la base gravada redondeada puede mover el total un centavo (por
+    ejemplo, $50.00 -> $49.99). Conservamos el IVA calculado por el módulo de
+    combustible; no se alteran las tasas ni los cálculos de FOVIAL/COTRANS.
+  */
+  const isFuelItem =
+    String(item.code || '').trim().toUpperCase().startsWith('FUEL-') ||
+    Number(item.fovial || 0) > 0 ||
+    Number(item.cotrans || 0) > 0;
+
+  if (isFuelItem) {
+    return round2(item.iva);
+  }
 
   if (isConsumerFinalInvoice(documentTypeCode)) {
     return calculateIncludedIva(gravada);
@@ -556,7 +575,7 @@ const getExportPersonType = (customer) => {
     type.includes('SOCIEDAD') ||
     type.includes('CONTRIBUYENTE')
   ) {
-    return Number(process.env.MH_INVALIDACION_EVENT_VERSION || 2);
+    return 2;
   }
 
   return 1;
@@ -578,7 +597,7 @@ const getExportItemType = (invoice) => {
   if (hasProduct && hasService) return 3;
   if (hasProduct) return 1;
 
-  return Number(process.env.MH_INVALIDACION_EVENT_VERSION || 2);
+  return 2;
 };
 
 const buildDocumentRelated = (invoice) => {
@@ -1042,6 +1061,56 @@ const buildTaxpayerBodyItem = ({ invoice, item, index }) => {
   };
 };
 
+const getCreditNoteTributeItemIva = (item) => {
+  const ventaGravada = round2(item.gravada);
+
+  if (ventaGravada <= 0) return 0;
+
+  const isFuelItem =
+    String(item.code || '').trim().toUpperCase().startsWith('FUEL-') ||
+    Number(item.fovial || 0) > 0 ||
+    Number(item.cotrans || 0) > 0;
+
+  if (isFuelItem) {
+    return round2(item.iva);
+  }
+
+  return calculateSeparatedIva(ventaGravada);
+};
+
+
+const getCreditNoteTributeTotalIva = (invoice) => {
+  const items = invoice.items || [];
+
+  if (!items.length) {
+    return round2(invoice.iva);
+  }
+
+  return round2(items.reduce((sum, item) => sum + getCreditNoteTributeItemIva(item), 0));
+};
+
+
+const creditNoteAdjustsCcf = (invoice) => {
+  return String(invoice.relatedDocumentTypeCode || '') === DOCUMENT_TYPE_CODES.CCF;
+};
+
+
+const getCreditNoteBodyTotalIva = (invoice, item) => {
+  if (creditNoteAdjustsCcf(invoice)) return 0;
+  return round2(item.totalIva ?? item.iva ?? 0);
+};
+
+
+const getCreditNoteSummaryTotalIva = (invoice) => {
+  if (creditNoteAdjustsCcf(invoice)) return 0;
+
+  const items = invoice.items || [];
+  if (!items.length) return round2(invoice.totalIva ?? invoice.iva ?? 0);
+
+  return round2(items.reduce((sum, item) => sum + getCreditNoteBodyTotalIva(invoice, item), 0));
+};
+
+
 const buildCreditNoteBodyItem = ({ invoice, item, index }) => {
   const hasIva = Number(item.gravada || 0) > 0;
 
@@ -1062,7 +1131,7 @@ const buildCreditNoteBodyItem = ({ invoice, item, index }) => {
     tributos: hasIva ? [IVA_TRIBUTE_CODE] : null,
     noGravado: round2(item.noGravado || 0),
     ivaPerci: round2(item.ivaPerci || 0),
-    totalIva: getOfficialItemIva(invoice.documentTypeCode, item),
+    totalIva: getCreditNoteBodyTotalIva(invoice, item),
     ivaRete: round2(item.ivaRete || item.retention1 || 0)
   };
 };
@@ -1082,7 +1151,9 @@ const buildExportBodyItem = ({ item, index }) => {
     precioUni: round4(item.unitPrice),
     montoDescu: 0,
     ventaGravada,
-    tributos: null,
+    // FEXE V3 exige informar C3 (IVA exportaciones 0%) por cada ítem.
+    // Aunque su valor sea 0.00, Hacienda lo valida como tributo requerido.
+    tributos: [EXPORT_IVA_TRIBUTE_CODE],
     noGravado: 0
   };
 };
@@ -1158,8 +1229,8 @@ const buildPayments = (invoice, totalOverride = null) => {
   ];
 };
 
-const buildIvaTributes = (invoice) => {
-  const totalIva = getOfficialTotalIva(invoice);
+const buildIvaTributes = (invoice, totalIvaOverride = null) => {
+  const totalIva = round2(totalIvaOverride ?? getOfficialTotalIva(invoice));
 
   if (totalIva <= 0) {
     return null;
@@ -1266,11 +1337,12 @@ const buildCreditNoteSummary = (invoice) => {
   const totalExenta = round2(invoice.exenta);
   const totalGravada = round2(invoice.gravada);
   const subTotalVentas = round2(totalNoSuj + totalExenta + totalGravada);
-  const totalIva = getOfficialTotalIva(invoice);
+  const ivaTributo = getCreditNoteTributeTotalIva(invoice);
+  const totalIva = getCreditNoteSummaryTotalIva(invoice);
   const ivaPerci = round2(invoice.ivaPerci || 0);
   const ivaRete = round2(invoice.retention1);
   const totalNoGravado = round2(invoice.totalNoGravado || 0);
-  const montoTotalOperacion = round2(subTotalVentas + totalIva + ivaPerci + totalNoGravado);
+  const montoTotalOperacion = round2(subTotalVentas + ivaTributo + ivaPerci + totalNoGravado);
   const totalPagar = round2(invoice.total || (montoTotalOperacion - ivaRete));
 
   return {
@@ -1279,7 +1351,7 @@ const buildCreditNoteSummary = (invoice) => {
     totalGravada,
     subTotalVentas,
     totalDescu: 0,
-    tributos: buildIvaTributes(invoice),
+    tributos: buildIvaTributes(invoice, ivaTributo),
     montoTotalOperacion,
     ivaPerci,
     totalIva,
@@ -1313,7 +1385,14 @@ const buildExportSummary = (invoice) => {
     totalDescu,
     seguro,
     flete,
-    tributos: null,
+    // C3 debe consolidarse también en el resumen de la FEXE, aun con valor 0.00.
+    tributos: [
+      {
+        codigo: EXPORT_IVA_TRIBUTE_CODE,
+        descripcion: EXPORT_IVA_TRIBUTE_DESCRIPTION,
+        valor: 0
+      }
+    ],
     montoTotalOperacion,
     totalNoGravado,
     totalNoOnerosas,
@@ -1765,27 +1844,18 @@ const buildOfficialStandardDteJson = (invoice) => {
 };
 
 const buildOfficialInvalidationJson = (invoice, options = {}) => {
-  const legacy = sanitizeOfficialValue(buildInvalidationJson(invoice, options));
-  const { identificacion, emisor, documento, motivo } = legacy;
-  const output = {
-    identificacion: { version: 3, ambiente: identificacion.ambiente,
-      codigoGeneracion: identificacion.codigoGeneracion,
-      fecEmi: identificacion.fecEmi || identificacion.fecAnula,
-      horEmi: identificacion.horEmi || identificacion.horAnula, fusion: null },
-    emisor: { nit: emisor.nit, nombre: emisor.nombre,
-      codEstableMH: emisor.codEstableMH ?? null, codEstable: emisor.codEstable ?? null,
-      codPuntoVentaMH: emisor.codPuntoVentaMH ?? null, codPuntoVenta: emisor.codPuntoVenta ?? null,
-      telefono: emisor.telefono, correo: emisor.correo },
-    documento: { tipoDte: documento.tipoDte, codigoGeneracion: documento.codigoGeneracion,
-      selloRecibido: documento.selloRecibido, numeroControl: documento.numeroControl,
-      fecEmi: documento.fecEmi, codigoGeneracionR: documento.codigoGeneracionR ?? null,
-      tipoDocumento: documento.tipoDocumento ?? null, numDocumento: documento.numDocumento ?? null,
-      nombre: documento.nombre ?? null, telefono: documento.telefono ?? null, correo: documento.correo ?? null },
-    motivo
-  };
-  return require('./dte-schema.service').validateFiscalJson(output, 'invalidation');
+  const eventJson = sanitizeOfficialValue(buildInvalidationJson(invoice, options));
+  delete eventJson.metadataSistema;
+  delete eventJson.selloAnulacion;
+  if (eventJson.identificacion.version === 3) {
+    const id = eventJson.identificacion;
+    eventJson.identificacion = {version:3,ambiente:id.ambiente,codigoGeneracion:id.codigoGeneracion,fecEmi:id.fecAnula,horEmi:id.horAnula,fusion:null};
+    delete eventJson.emisor.tipoEstablecimiento;
+    delete eventJson.emisor.nomEstablecimiento;
+    delete eventJson.documento.montoIva;
+  }
+  return require('./dte-schema.service').validateFiscalJson(eventJson, 'invalidation');
 };
-
 const buildInvalidationFileJson = (invoice, options = {}) => {
   const signedJws = invoice.invalidationSignedJws;
   const json = signedJws ? decodeSignedJson(signedJws) : buildOfficialInvalidationJson(invoice, options);
