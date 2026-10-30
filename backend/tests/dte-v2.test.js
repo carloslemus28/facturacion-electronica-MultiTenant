@@ -122,10 +122,10 @@ test('PDF de documentos nuevos y eventos se genera desde el archivo correspondie
   }
 });
 
-test('Invalidacion predeterminada v2 conserva campos requeridos; configuracion invalida falla',()=>{
+test('Invalidacion de compatibilidad v2 conserva campos requeridos; configuracion invalida falla',()=>{
  const previous=process.env.MH_INVALIDACION_EVENT_VERSION;
  try {
-  delete process.env.MH_INVALIDACION_EVENT_VERSION;
+  process.env.MH_INVALIDACION_EVENT_VERSION='2';
   const original=s.builder.buildOfficialStandardDteJson(s.standard('03'));
   const input={...s.standard('03'),signedJws:sign(original),receptionSeal:'A'.repeat(40),invalidationGenerationCode:uuid,invalidatedAt:'2026-10-28T16:00:00Z',invalidationReason:'Rescindir operacion'};
   const result=s.builder.buildOfficialInvalidationJson(input);

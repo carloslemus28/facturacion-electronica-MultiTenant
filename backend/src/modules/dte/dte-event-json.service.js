@@ -286,16 +286,16 @@ const buildContingencyReason = ({ event }) => {
 const buildReturnReceiver = ({ event, sourceInvoice, customer }) => {
   const snapshot = event.receiverSnapshotJson || {};
   const effectiveCustomer = customer || sourceInvoice?.customer || {};
-  // Return of a consumer-final invoice: Hacienda requires country fields to be null.
+  // FE and FSEE returns require null country fields; only FEX carries country.
   // Do not copy the customer's default country (or a stored snapshot) into this case.
-  const isConsumerFinal = String(event.sourceDocumentTypeCode || sourceInvoice?.documentTypeCode || '') === '01';
+  const isDomesticReturn = String(event.sourceDocumentTypeCode || sourceInvoice?.documentTypeCode || '') !== '11';
 
   return {
     tipoDocumento: cleanString(snapshot.tipoDocumento) || getDocumentTypeForReceiver(effectiveCustomer.documentType),
     numDocumento: cleanString(snapshot.numDocumento) || cleanString(effectiveCustomer.documentNumber),
     nombre: cleanString(snapshot.nombre) || cleanString(effectiveCustomer.name),
-    codPais: isConsumerFinal ? null : cleanString(snapshot.codPais) || cleanString(effectiveCustomer.countryCode || effectiveCustomer.codPais),
-    nombrePais: isConsumerFinal ? null : cleanString(snapshot.nombrePais) || cleanString(effectiveCustomer.countryName || effectiveCustomer.country || effectiveCustomer.nombrePais),
+    codPais: isDomesticReturn ? null : cleanString(snapshot.codPais) || cleanString(effectiveCustomer.countryCode || effectiveCustomer.codPais),
+    nombrePais: isDomesticReturn ? null : cleanString(snapshot.nombrePais) || cleanString(effectiveCustomer.countryName || effectiveCustomer.country || effectiveCustomer.nombrePais),
     telefono: cleanPhone(snapshot.telefono || effectiveCustomer.phone),
     correo: cleanString(snapshot.correo || effectiveCustomer.email)
   };

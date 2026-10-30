@@ -1,3 +1,4 @@
+const contingencyRules = require('./contingency-closure');
 const { assertEnabled } = require('./dte-schema.service');
 const assertEventPointOfSale = user => { if(Number(user.pointOfSale.companyId)!==Number(user.company.id)){const e=new Error('Seleccione un punto de venta del contribuyente activo');e.statusCode=403;throw e;} };
 const { v4: uuidv4 } = require('uuid');
@@ -28,7 +29,7 @@ const EVENT_TYPE_NAMES = {
 };
 
 const RETURN_ALLOWED_DOCUMENT_TYPES = ['01', '11', '14'];
-const CONTINGENCY_ALLOWED_DOCUMENT_TYPES = ['01', '03', '04', '05', '06', '07', '08', '09', '11', '14', '15'];
+const CONTINGENCY_ALLOWED_DOCUMENT_TYPES = ['01', '03', '04', '05', '06', '07', '11', '14'];
 const IVA_RATE = 0.13;
 const IVA_FACTOR = 1.13;
 const IVA_TRIBUTE_CODE = '20';
@@ -397,7 +398,8 @@ const validateSourceInvoiceForReturn = ({ invoice, user }) => {
 
 const buildDateTimeFromInputs = ({ dateValue, timeValue, fallback = null }) => {
   if (dateValue && String(dateValue).includes('T')) {
-    const date = new Date(dateValue);
+    const rawDate = String(dateValue);
+    const date = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(rawDate) ? rawDate : `${rawDate}-06:00`);
 
     if (!Number.isNaN(date.getTime())) {
       return date;
@@ -412,6 +414,10 @@ const buildDateTimeFromInputs = ({ dateValue, timeValue, fallback = null }) => {
     if (!Number.isNaN(date.getTime())) {
       return date;
     }
+  }
+
+  if (dateValue) {
+    const error = new Error('Fecha de contingencia no válida'); error.statusCode = 400; throw error;
   }
 
   if (fallback) {
@@ -540,9 +546,9 @@ const buildReturnEventItemPayload = ({ sourceInvoice, sourceItem, input, index }
   const ratio = sourceQuantity > 0 ? requestedQuantity / sourceQuantity : 0;
   const documentTypeCode = String(sourceInvoice.documentTypeCode || '');
 
-  const ventaNoSuj = round8(safeNumber(sourceItem.noSuj) * ratio);
-  const ventaExenta = round8(safeNumber(sourceItem.exenta) * ratio);
-  const ventaGravada = round8(safeNumber(sourceItem.gravada) * ratio);
+  const ventaNoSuj = documentTypeCode === '14' ? 0 : round8(safeNumber(sourceItem.noSuj) * ratio);
+  const ventaExenta = documentTypeCode === '14' ? 0 : round8(safeNumber(sourceItem.exenta) * ratio);
+  const ventaGravada = documentTypeCode === '14' ? 0 : round8(safeNumber(sourceItem.gravada) * ratio);
   const compra = documentTypeCode === '14'
     ? round8(safeNumber(sourceItem.total || sourceItem.subtotal || sourceItem.gravada || sourceItem.exenta || sourceItem.noSuj) * ratio)
     : 0;
@@ -1001,14 +1007,16 @@ const createSpecialOperationsEvent = async ({ data, user }) => {
 const createContingencyEvent = async ({ data, user }) => {
   const currentUser = await resolveUserContext(user);
   const invoiceIds = normalizeInvoiceIds(data);
+  const returnIds = contingencyRules.normalizeReturnIds(data.returnEventIds);
+  if (returnIds.length) assertEnabled(currentUser.company, '18');
 
-  if (invoiceIds.length === 0) {
+  if (invoiceIds.length + returnIds.length === 0) {
     const error = new Error('Debe indicar al menos un DTE generado en contingencia');
     error.statusCode = 400;
     throw error;
   }
 
-  if (invoiceIds.length > 1000) {
+  if (invoiceIds.length + returnIds.length > 1000) {
     const error = new Error('El evento de contingencia permite informar hasta 1000 DTE por evento');
     error.statusCode = 400;
     throw error;
@@ -1045,6 +1053,11 @@ const createContingencyEvent = async ({ data, user }) => {
     error.statusCode = 400;
     throw error;
   }
+
+  if (!(data.startDate || data.fInicio || data.contingencyStartDate) || !(data.endDate || data.fFin || data.contingencyEndDate)) {
+    const error = new Error('Indique las fechas de inicio y fin reales de la contingencia'); error.statusCode = 400; throw error;
+  }
+  contingencyRules.validatePeriod(contingencyStartedAt, contingencyEndedAt);
 
   const responsibleName = cleanString(
     data.responsibleName ||
@@ -1118,6 +1131,21 @@ const createContingencyEvent = async ({ data, user }) => {
       });
     }
 
+    const returnEvents = returnIds.length ? await DteEvent.findAll({
+      where: { id: returnIds, companyId: currentUser.company.id },
+      transaction, lock: transaction.LOCK.UPDATE
+    }) : [];
+    if (returnEvents.length !== returnIds.length) {
+      const error = new Error('Uno o más retornos no existen para este contribuyente'); error.statusCode = 404; throw error;
+    }
+    for (const returned of returnEvents) {
+      contingencyRules.validateReturn(returned, currentUser, contingencyStartedAt, contingencyEndedAt);
+      const links = await DteEventItem.findAll({ where: { codigoGeneracion: returned.generationCode, tipoDocumento: '18' }, transaction });
+      if (links.length) {
+        const error = new Error('El retorno ya está relacionado con una contingencia'); error.statusCode = 409; throw error;
+      }
+    }
+
     const event = await DteEvent.create({
       companyId: currentUser.company.id,
       pointOfSaleId: currentUser.pointOfSale.id,
@@ -1160,6 +1188,20 @@ const createContingencyEvent = async ({ data, user }) => {
         tipoContingencia,
         motivoContin
       }, { transaction });
+    }
+
+    for (let index = 0; index < returnEvents.length; index += 1) {
+      const returned = returnEvents[index];
+      await DteEventItem.create({
+        eventId: event.id, numItem: orderedInvoices.length + index + 1,
+        codigoGeneracion: returned.generationCode, tipoDocumento: '18',
+        description: `Retorno emitido en contingencia ${returned.generationCode}`,
+        quantity: 1, unitPrice: 0, total: 0
+      }, { transaction });
+      // Only unsigned, never-transmitted drafts can change their transmission model.
+      await returned.update({ tipoModelo: 2, tipoOperacion: 2, tipoContingencia, motivoContin, officialEventJson: null }, { transaction });
+      const returnedContext = await getEventContext({ id: returned.id, transaction });
+      await returned.update({ officialEventJson: dteEventJsonService.buildOfficialEventJson(returnedContext) }, { transaction });
     }
 
     const context = await getEventContext({
@@ -1211,6 +1253,17 @@ require('./dte-schema.service').assertEnabled(company, event.eventTypeCode);;
     const error = new Error('Solo se pueden transmitir eventos en estado GENERADO, FIRMADO o RECHAZADO');
     error.statusCode = 400;
     throw error;
+  }
+
+  if (String(event.eventTypeCode) === '19') {
+    contingencyRules.validatePeriod(event.contingencyStartedAt, event.contingencyEndedAt);
+  }
+  if (String(event.eventTypeCode) === '18' && Number(event.tipoOperacion) === 2) {
+    const links = await DteEventItem.findAll({ where: { codigoGeneracion: event.generationCode, tipoDocumento: '18' } });
+    const contingency = links.length ? await DteEvent.findOne({
+      where: { id: links.map(link => link.eventId), companyId: company.id, eventTypeCode: '19', status: 'ACEPTADO' }
+    }) : null;
+    contingencyRules.validateRelease(contingency);
   }
 
   const transmittedAt = new Date();
@@ -1295,7 +1348,7 @@ try {
           signedJws: signed.signedJws
         });
 
-    if (transmission.accepted) {
+    if (transmission.accepted && transmission.receptionSeal) {
       await event.update({
         status: 'ACEPTADO',
         signedJws: signed.signedJws,
